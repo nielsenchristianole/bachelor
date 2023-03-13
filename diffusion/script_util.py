@@ -12,6 +12,7 @@ class ModelType(enum.Enum):
 def get_hardware_kwargs(hardware: str):
     if hardware == 'local':
         return dict(
+            batch_size=16,
             accelerator='gpu',
             strategy='dp',
             num_nodes=1,
@@ -21,6 +22,7 @@ def get_hardware_kwargs(hardware: str):
         )
     elif hardware == 'hpc':
         return dict(
+            batch_size=32,
             accelerator='gpu',
             strategy='ddp',
             devices=8,
@@ -48,7 +50,6 @@ def diffusion_uncond_defaults(size_multiplier=1, levels=3) -> dict:
         model_type = ModelType.uncond,
         lr = 3e-4,
         epochs = 8,
-        batch_size = 64,
         unet_kwargs = unet_kwargs,
         diffusion_kwargs = diffusion_kwargs
     )
@@ -70,7 +71,6 @@ def diffusion_cond_embed_defaults(size_multiplier=1, levels=3) -> dict:
         model_type = ModelType.cond_embed,
         lr = 3e-4,
         epochs = 8,
-        batch_size = 32,
         unet_kwargs = unet_kwargs,
         diffusion_kwargs = diffusion_kwargs
     )

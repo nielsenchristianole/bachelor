@@ -1,4 +1,5 @@
 import os
+import argparse
 
 import torch
 from torch import nn, utils
@@ -30,7 +31,7 @@ def main(
     
     data_module = MNISTDataModule(
         data_dir=data_dir,
-        batch_size=params.get('batch_size'),
+        batch_size=hardware_kwargs.pop('batch_size'),
         num_workers=hardware_kwargs.pop('num_workers')
     )
     channels, width, height = data_module.dims
@@ -60,8 +61,10 @@ def main(
         data_module
     )
 
-if __name__ == '__main__':
+
+def multiple_trainings(hardware=None):
     # 6 different consistent seeds
+    hardware = 'local' if hardware is None else hardware
     seed_generator = (seed for seed in random.default_rng(seed=42).integers(low=1000, high=9999, size=6))
     for param_fn in [diffusion_uncond_defaults, diffusion_cond_embed_defaults]:
         for param_args, size_name in zip([(1,2), (2, 2), (4, 3), (8, 3)], ['tiny', 'small', 'medium', 'large']):
@@ -69,6 +72,14 @@ if __name__ == '__main__':
             main(
                 params,
                 next(seed_generator),
-                hardware_kwargs=get_hardware_kwargs('local'),
+                hardware_kwargs=get_hardware_kwargs(hardware),
                 size_name=size_name
             )
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--hardware')
+    
+    args = parser.parse_args()
+    
+    multiple_trainings(args.hardware)
