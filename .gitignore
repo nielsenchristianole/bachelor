@@ -1,3 +1,11 @@
 # Notebooks sucks with git #
 ############################
 *.ipynb
+
+# Everything related to training on hcp #
+#########################################
+*.err
+*.out
+*.sh
+datasets/
+models/

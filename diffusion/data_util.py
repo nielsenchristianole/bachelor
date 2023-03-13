@@ -87,6 +87,10 @@ def img_plot(img, title=None, ax: matplotlib.axes.Axes=None, **ax_kwargs):
 def show_out_images(x: torch.Tensor, y: torch.Tensor=None, fig=None, ax_kwargs={}, **fig_kwargs):
     x = x.detach().to('cpu').numpy()
     n_batches, channels, width, height = x.shape
+    
+    y = y.detach().to('cpu').numpy() if isinstance(y, torch.Tensor) else y
+    y = (None for _ in range(n_batches)) if y is None else y
+    
     if channels == 1:
         imgs = np.squeeze(x, 1)
     elif channels == 3:
@@ -99,7 +103,7 @@ def show_out_images(x: torch.Tensor, y: torch.Tensor=None, fig=None, ax_kwargs={
     num_side_img = math.ceil(math.sqrt(n_batches))
     for i, (img, label) in enumerate(zip(imgs, y), start=1):
         ax = fig.add_subplot(num_side_img, num_side_img, i)
-        img_plot(img, ax, **ax_kwargs)
+        img_plot(img, label, ax, **ax_kwargs)
 
 
 def training_parrent_plot(
