@@ -67,7 +67,7 @@ def multiple_trainings(hardware=None):
     hardware = 'local' if hardware is None else hardware
     seed_generator = (seed for seed in random.default_rng(seed=42).integers(low=1000, high=9999, size=6))
     for param_fn in [diffusion_uncond_defaults, diffusion_cond_embed_defaults]:
-        for param_args, size_name in zip([(1,2), (2, 2), (4, 3), (8, 3)], ['tiny', 'small', 'medium', 'large']):
+        for param_args, size_name in zip(reversed([(1,2), (2, 2), (4, 3), (8, 3)]), reversed(['tiny', 'small', 'medium', 'large'])):
             params = param_fn(*param_args)
             main(
                 params,
