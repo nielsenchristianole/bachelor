@@ -1,5 +1,6 @@
 import enum
 import os
+import torch
 
 class ModelType(enum.Enum):
     """
@@ -25,7 +26,7 @@ def get_hardware_kwargs(hardware: str):
             batch_size=32,
             accelerator='gpu',
             strategy='ddp',
-            devices=8,
+            devices=torch.cuda.device_count(),
             num_nodes=1,
             num_workers=os.cpu_count(),
             device_name='cuda',
