@@ -23,12 +23,12 @@ def get_hardware_kwargs(hardware: str):
         )
     elif hardware == 'hpc':
         return dict(
-            batch_size=32,
+            batch_size=16,
             accelerator='gpu',
             strategy='ddp',
             devices=torch.cuda.device_count(),
             num_nodes=1,
-            num_workers=os.cpu_count(),
+            num_workers=min(16, os.cpu_count()),
             device_name='cuda',
             work_dir='./'
         )
