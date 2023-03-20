@@ -50,9 +50,9 @@ def main(
     trainer = pl.Trainer(
         default_root_dir=models_dir,
         callbacks=[loss_callback, epoch_callback, last_callback],
-        log_every_n_steps=10,
         max_epochs=params.get('epochs'),
         logger=CSVLogger(models_dir, flush_logs_every_n_steps=100),
+        log_every_n_steps=10,
         **hardware_kwargs
     )
     
@@ -66,8 +66,8 @@ def multiple_trainings(hardware=None):
     # 6 different consistent seeds
     hardware = 'local' if hardware is None else hardware
     seed_generator = (seed for seed in random.default_rng(seed=42).integers(low=1000, high=9999, size=6))
-    for param_fn in [diffusion_uncond_defaults, diffusion_cond_embed_defaults]:
-        for param_args, size_name in zip(reversed([(1,2), (2, 2), (4, 3), (8, 3)]), reversed(['tiny', 'small', 'medium', 'large'])):
+    for param_fn in [diffusion_cond_embed_defaults]: # [diffusion_uncond_defaults, diffusion_cond_embed_defaults]:
+        for param_args, size_name in zip(reversed([(1,2), (2, 2)]), reversed(['tiny', 'small'])): # zip(reversed([(1,2), (2, 2), (4, 3), (8, 3)]), reversed(['tiny', 'small', 'medium', 'large'])):
             params = param_fn(*param_args)
             main(
                 params,
