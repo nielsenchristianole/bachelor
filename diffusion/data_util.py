@@ -67,7 +67,7 @@ def get_logger_path_long(work_dir, version_suffix=-1):
     return paths[0]
 
 
-work_dir='C:/Users/niels/local_data/bachelor'
+work_dir='C:/Users/niels/local_data/bachelor/models'
 get_ckpt_path = partial(get_ckpt_path_long, work_dir=work_dir)
 get_logger_path = partial(get_logger_path_long, work_dir=work_dir)
 
@@ -78,6 +78,8 @@ def img_plot(img, title=None, ax: matplotlib.axes.Axes=None, **ax_kwargs):
     ) | ax_kwargs
     if ax is None:
         ax = plt.gca()
+    if isinstance(img, torch.Tensor):
+        img = img.detach().cpu().numpy()
     ax.imshow(img, **kwargs)
     ax.set_axis_off()
     if title is not None:

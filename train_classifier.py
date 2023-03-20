@@ -60,7 +60,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     hardware = 'local' if args.hardware is None else args.hardware
-    seed = 42
+    seed = 43
     epochs = 20
     
     main(

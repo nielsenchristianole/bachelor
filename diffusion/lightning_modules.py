@@ -23,10 +23,15 @@ class DiffusionWithModel(pl.LightningModule):
     ):
         super().__init__()
         
-        self.save_hyperparameters(ignore=['model'])
+        self.save_hyperparameters()
         
         self.model_type = params.get('model_type')
-        self.model = UNet(self.model_type, **params.get('unet_kwargs'))
+        self.var_type = params.get('var_type')
+        self.model = UNet(
+            model_type=self.model_type,
+            var_type=self.var_type,
+            **params.get('unet_kwargs')
+        )
         self.diffusion = Diffusion(**params.get('diffusion_kwargs'))
         self.params = params
         self.loss_fn = nn.MSELoss() if loss_fn is None else loss_fn

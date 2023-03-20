@@ -2,6 +2,7 @@ import torch
 from torch import nn
 
 import pytorch_lightning as pl
+import torchmetrics
 
 
 class Two_conv_pool(nn.Module):
@@ -62,7 +63,7 @@ class VGG5(pl.LightningModule):
     """
     Adopted from https://github.com/kkweon/mnist-competition/blob/master/vgg5.py
     """
-    def __init__(self, in_channels=1, n_classes=10, loss_fn=None, lr=1e-3, dropout=0.5):
+    def __init__(self, in_channels=1, num_classes=10, loss_fn=None, lr=1e-3, dropout=0.5):
         
         super().__init__()
         self.save_hyperparameters()
@@ -74,6 +75,7 @@ class VGG5(pl.LightningModule):
         self.block_3 = Three_conv_pool(64, 128, 128, 128)
         self.block_4 = Three_conv_pool(128, 256, 256, 256)
         self.flatten = nn.Flatten()
+        # maybe add global avg pool instead of flatten to be img_size invariant
         self.dense = nn.Sequential(
             nn.Linear(256, 512),
             nn.ReLU(),
@@ -81,8 +83,12 @@ class VGG5(pl.LightningModule):
             nn.Linear(512, 512),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(512, n_classes)
+            nn.Linear(512, num_classes)
         )
+        
+        self.train_acc = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes)
+        self.val_acc = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes)
+        self.test_acc = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes)
         
         if loss_fn is None:
             loss_fn = nn.CrossEntropyLoss()
@@ -119,25 +125,37 @@ class VGG5(pl.LightningModule):
             return x
         return self.block_4(x, use_pooling=False)
     
-    def process_batch(self, batch):
+    def training_step(self, batch, batch_idx):
         x, y = batch
         y_pred = self.forward(x)
+        
+        self.train_acc(y_pred, y)
+        self.log('train_acc', self.train_acc, on_step=True, on_epoch=False, logger=True)
+        
         loss = self.loss_fn(y_pred, y)
-        return loss
-    
-    def training_step(self, batch, batch_idx):
-        loss = self.process_batch(batch)
-        self.log('train_loss', loss, on_step=True, prog_bar=True, logger=True)
+        self.log('train_loss', loss, on_step=True, on_epoch=False, prog_bar=True, logger=True)
         return loss
         
     def validation_step(self, batch, batch_idx):
-        loss = self.process_batch(batch)
-        self.log('val_loss', loss, on_epoch=True, prog_bar=True, logger=True)
+        x, y = batch
+        y_pred = self.forward(x)
+        
+        self.val_acc(y_pred, y)
+        self.log('valid_acc', self.val_acc, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        
+        loss = self.loss_fn(y_pred, y)
+        self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         return loss
     
     def test_step(self, batch, batch_idx):
-        loss = self.process_batch(batch)
-        self.log('test_loss', loss, on_epoch=True, prog_bar=True, logger=True)
+        x, y = batch
+        y_pred = self.forward(x)
+        
+        self.test_acc(y_pred, y)
+        self.log('test_acc', self.test_acc, on_step=False, on_epoch=True)
+        
+        loss = self.loss_fn(y_pred, y)
+        self.log('test_loss', loss, on_step=False, on_epoch=True)
         return loss
     
     def configure_optimizers(self):

@@ -48,7 +48,7 @@ def get_hardware_kwargs(hardware: str):
 def get_vgg_mnist_kwargs(hardware: str):
     if hardware == 'local':
         return dict(
-            batch_size=32,
+            batch_size=128,
             accelerator='gpu',
             strategy='dp',
             num_nodes=1,
@@ -58,7 +58,7 @@ def get_vgg_mnist_kwargs(hardware: str):
         )
     elif hardware == 'hpc':
         return dict(
-            batch_size=32,
+            batch_size=128,
             accelerator='gpu',
             strategy='ddp',
             devices=torch.cuda.device_count(),
