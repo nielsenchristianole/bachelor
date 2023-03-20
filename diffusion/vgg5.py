@@ -62,7 +62,7 @@ class VGG5(pl.LightningModule):
     """
     Adopted from https://github.com/kkweon/mnist-competition/blob/master/vgg5.py
     """
-    def __init__(self, in_channels=1, n_classes=10, loss_fn=None, lr=1e-3):
+    def __init__(self, in_channels=1, n_classes=10, loss_fn=None, lr=1e-3, dropout=0.5):
         
         super().__init__()
         self.save_hyperparameters()
@@ -77,8 +77,10 @@ class VGG5(pl.LightningModule):
         self.dense = nn.Sequential(
             nn.Linear(256, 512),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(512, 512),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(512, n_classes)
         )
         

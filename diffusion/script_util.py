@@ -10,6 +10,16 @@ class ModelType(enum.Enum):
     cond_embed = 'cond_embed'  # the model generates samples using embeddings
     guided = 'guided'  # the model is guided with gradients from a classifier
 
+
+class VarType(enum.Enum):
+    """
+    How the model determines variance for sampling during the reverse process
+    """
+    zero = 'zero' # DDIM, the model is not deterministic
+    scheduled = 'scheduled' # the model uses the beta noise schedule as variance when sampling
+    learned = 'learned' # the model predicts the variance along the mean in the forward pass
+
+
 def get_hardware_kwargs(hardware: str):
     if hardware == 'local':
         return dict(
@@ -24,6 +34,31 @@ def get_hardware_kwargs(hardware: str):
     elif hardware == 'hpc':
         return dict(
             batch_size=16,
+            accelerator='gpu',
+            strategy='ddp',
+            devices=torch.cuda.device_count(),
+            num_nodes=1,
+            num_workers=min(16, os.cpu_count()),
+            device_name='cuda',
+            work_dir='./'
+        )
+    else:
+        raise NotImplementedError
+
+def get_vgg_mnist_kwargs(hardware: str):
+    if hardware == 'local':
+        return dict(
+            batch_size=32,
+            accelerator='gpu',
+            strategy='dp',
+            num_nodes=1,
+            num_workers=8,
+            device_name='cuda',
+            work_dir='C:/Users/niels/local_data/bachelor'
+        )
+    elif hardware == 'hpc':
+        return dict(
+            batch_size=32,
             accelerator='gpu',
             strategy='ddp',
             devices=torch.cuda.device_count(),
