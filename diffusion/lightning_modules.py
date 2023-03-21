@@ -12,7 +12,7 @@ from torchvision import transforms
 from torchvision.datasets import MNIST
 from torch.utils.data import DataLoader, random_split
 
-from .script_util import ModelType
+from .script_util import ModelType, VarType
 
 
 class DiffusionWithModel(pl.LightningModule):
@@ -43,8 +43,11 @@ class DiffusionWithModel(pl.LightningModule):
         # trains unconditionally 10% of the time
         if self.model_type is ModelType.cond_embed and random.rand() < 0.1:
             y = None
-        predicted_noise = self.model.forward(x_t, t, y)
-        loss = self.loss_fn(predicted_noise, noise)
+        model_out = self.model.forward(x_t, t, y)
+        if self.var_type is VarType.learned:
+            raise NotImplementedError
+        else:
+            loss = self.loss_fn(model_out, noise)
         return loss
     
     def training_step(self, batch, batch_idx):
@@ -87,8 +90,7 @@ class MNISTDataModule(pl.LightningDataModule):
         self.transform = transforms.Compose(
             [
                 transforms.ToTensor(),
-                transforms.Normalize((0.,), (1.,)),
-                # transforms.Normalize((0.1307,), (0.3081,)),
+                transforms.Normalize((0.,), (1.,)) # transforms.Normalize((0.1307,), (0.3081,)),
             ]
         )
     

@@ -274,7 +274,7 @@ class UNet(nn.Module):
         model_channels,
         out_channels,
         model_type: ModelType,
-        var_type: VarType=VarType.scheduled, # auto init for backwards compatebility
+        var_type: VarType,
         num_res_blocks,
         dropout=0.,
         channel_mult=(1, 2, 4, 8),
@@ -288,7 +288,7 @@ class UNet(nn.Module):
         
         self.in_channels = in_channels
         self.model_channels = model_channels
-        self.out_channels = out_channels
+        self.out_channels = 2 * out_channels if var_type is VarType.learned else out_channels
         self.model_type = model_type
         self.var_type = var_type
         self.num_res_blocks = num_res_blocks
@@ -381,7 +381,7 @@ class UNet(nn.Module):
         self.out = nn.Sequential(
             nn.GroupNorm(self.group_norm_groups, channels),
             nn.SiLU(),
-            zero_module(nn.Conv2d(model_channels, out_channels, kernel_size=(3,3), padding=1))
+            zero_module(nn.Conv2d(model_channels, self.out_channels, kernel_size=(3,3), padding=1))
         )
     
     def forward(self, x: torch.Tensor, timesteps: torch.Tensor, y: torch.Tensor=None):
@@ -473,18 +473,18 @@ class Diffusion:
         """
         Calculate mean and std of p(x_t | x_{t-1}) using the reverse process and model
         """
+        model_out = model(x, t, y=y)
         if model.var_type in [VarType.zero, VarType.scheduled]:
-            predicted_noise = model(x, t, y=y)
             c1 = self._get(self.recip_sqrt_alpha, t, x.shape)
             c2 = self._get(self.noise_coef, t, x.shape)
-            mean = c1 * (x - c2 * predicted_noise)
+            mean = c1 * (x - c2 * model_out)
             
             if model.var_type is VarType.zero:
                 std = torch.zeros_like(mean)
             else:
                 std = self._get(self.std, t, x.shape)
         elif model.var_type is VarType.learned:
-            mean, var = self._get_mean_var_split_model_pred(model, x, t)
+            mean, var = self._split_model_out(model_out, x.shape)
             std = torch.sqrt(var)
         else:
             raise NotImplementedError
@@ -579,52 +579,53 @@ class Diffusion:
         
         # for class loss
         out_logits = classifier.forward(x_0_clone)
-        class_loss = F.cross_entropy(out_logits, y_target)
+        class_loss = F.cross_entropy(out_logits, y_target, reduction='none')
         
         # for perception loss
         reconstructed_latent = classifier.get_featuremap(x_0_clone, vgg_block)
-        perc_loss = F.mse_loss(reconstructed_latent, original_latent)
+        perc_loss = F.mse_loss(reconstructed_latent, original_latent, reduction='none').mean(dim=(1,2,3))
         
         # combined loss and getting grad
         reconstructed_loss = lambda_c * class_loss + lambda_p * perc_loss
-        noisy_loss = self.recip_sqrt_alpha[t] * reconstructed_loss
-        noisy_loss.backward()
+        noisy_loss = self._get(self.recip_sqrt_alpha, t, reconstructed_loss.shape) * reconstructed_loss # self.recip_sqrt_alpha[t.cpu().numpy()] * reconstructed_loss
+        noisy_loss.mean().backward()
         gradient = x_0_clone.grad.detach()
         
-        if model.var_type in [VarType.zero, VarType.scheduled]:
-            # algo 2 in _Diffusion Models Beat GANs on Image Synthesis_
-            # sqrt_one_minus_alpha_hat = self._get(self.sqrt_one_minus_alpha_hat, t, x_t.shape)
-            # sqrt_one_minus_alpha_hat_t_minus_one = self._get(self.sqrt_one_minus_alpha_hat, t-1, x_t.shape)
-            
-            # sqrt_alpha_hat = self._get(self.sqrt_alpha_hat, t, x_t.shape)
-            # sqrt_alpha_hat_t_minus_one = self._get(self.sqrt_alpha_hat, t-1, x_t.shape)
-            
-            # err_pred = model.forward(x_t, t) - sqrt_one_minus_alpha_hat * x_0_clone.grad
-            # mean  = (sqrt_alpha_hat_t_minus_one / sqrt_alpha_hat) * \
-            #         (x_t - sqrt_one_minus_alpha_hat * err_pred) + \
-            #         sqrt_one_minus_alpha_hat_t_minus_one * err_pred
-            
-            mu = model(x_t, t)
-            cov = self._get(self.beta, t, x_t.shape)
-            c1 = self._get(self.recip_sqrt_alpha, t, x_t.shape)
-            c2 = self._get(self.noise_coef, t, x_t.shape)
-            mean = c1 * (x_t - c2 * mu) + cov * gradient
-            
-            if model.var_type is VarType.zero:
-                std = torch.zeros_like(mean)
+        with torch.no_grad():
+            model_out = model(x_t, t)
+            if model.var_type in [VarType.zero, VarType.scheduled]:
+                # algo 2 in _Diffusion Models Beat GANs on Image Synthesis_
+                # sqrt_one_minus_alpha_hat = self._get(self.sqrt_one_minus_alpha_hat, t, x_t.shape)
+                # sqrt_one_minus_alpha_hat_t_minus_one = self._get(self.sqrt_one_minus_alpha_hat, t-1, x_t.shape)
+                
+                # sqrt_alpha_hat = self._get(self.sqrt_alpha_hat, t, x_t.shape)
+                # sqrt_alpha_hat_t_minus_one = self._get(self.sqrt_alpha_hat, t-1, x_t.shape)
+                
+                # err_pred = model.forward(x_t, t) - sqrt_one_minus_alpha_hat * x_0_clone.grad
+                # mean  = (sqrt_alpha_hat_t_minus_one / sqrt_alpha_hat) * \
+                #         (x_t - sqrt_one_minus_alpha_hat * err_pred) + \
+                #         sqrt_one_minus_alpha_hat_t_minus_one * err_pred
+                
+                cov = self._get(self.beta, t, x_t.shape)
+                c1 = self._get(self.recip_sqrt_alpha, t, x_t.shape)
+                c2 = self._get(self.noise_coef, t, x_t.shape)
+                mean = c1 * (x_t - c2 * model_out) - cov * gradient
+                
+                if model.var_type is VarType.zero:
+                    std = torch.zeros_like(mean)
+                else:
+                    std = self._get(self.std, t, x_t.shape)
+            elif model.var_type is VarType.learned:
+                # algo 1 in _Diffusion Models Beat GANs on Image Synthesis_
+                mu, cov = self._split_model_out(model_out, x_t.shape)
+                c1 = self._get(self.recip_sqrt_alpha, t, x_t.shape)
+                c2 = self._get(self.noise_coef, t, x_t.shape)
+                mean = c1 * (x_t - c2 * mu) - cov * gradient
+                std = torch.sqrt(cov)
             else:
-                std = self._get(self.std, t, x_t.shape)
-        elif model.var_type is VarType.learned:
-            # algo 1 in _Diffusion Models Beat GANs on Image Synthesis_
-            mu, cov = self._get_mean_var_split_model_pred(model, x_t, t)
-            c1 = self._get(self.recip_sqrt_alpha, t, x_t.shape)
-            c2 = self._get(self.noise_coef, t, x_t.shape)
-            mean = c1 * (x_t - c2 * mu) + cov * gradient
-            std = torch.sqrt(cov)
-        else:
-            raise NotImplementedError(f"Unknown {model.var_type=}")
-        
-        return mean, std
+                raise NotImplementedError(f"Unknown {model.var_type=}")
+            
+            return mean, std
     
     def p_guided_sample(
         self,
@@ -681,9 +682,11 @@ class Diffusion:
         assert tau < (T:=self.num_diffusion_timesteps), \
             f"{tau=} has to be smaller than {T=}"
         
+        batch_size = x_0.shape[0]
+        
         x_0_original = x_0.to(self.device)
-        y = torch.tensor((y,), device=self.device)
-        t = torch.tensor((tau,), device=self.device)
+        y = torch.tensor((y,) * batch_size, device=self.device)
+        t = torch.tensor((tau,) * batch_size, device=self.device)
         
         x_t, noise = self.q_sample(x_0_original, t)
         x_0_reconstructed = torch.clone(x_0_original)
@@ -703,8 +706,8 @@ class Diffusion:
             x_0_reconstructed = self.p_sample_loop(model, t_lower=0, t_upper=i, x=x_t)
             x_t = self.p_guided_sample(model, classifier, x_t, x_0_reconstructed, original_latent, t, y, lambda_p=lambda_p, lambda_c=lambda_c, vgg_block=vgg_block)
         classification_logits = classifier.forward(x_t)
-        if torch.argmax(classification_logits) == y:
-            is_fooled = True
+        # if torch.argmax(classification_logits) == y:
+        #     is_fooled = True
         #        break
         
         return x_t, classification_logits, is_fooled
@@ -723,13 +726,13 @@ class Diffusion:
         return torch.randint(low=0, high=self.num_classes, size=(n_samples,), device=self.device)
     
     @staticmethod
-    def _get_mean_var_split_model_pred(
-        model: UNet,
-        x: torch.Tensor,
-        t: torch.Tensor
+    def _split_model_out(
+        model_out: torch.Tensor,
+        in_shape: torch.Size
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        raise NotImplementedError
-        return model(x, t)
+        B, C = in_shape[:2]
+        assert model_out.shape == (B, C * 2, *in_shape[2:]), "out channel dim not twice input channel dim, cannot split to mean, var"
+        return torch.split(model_out, C, dim=1)
     
     @staticmethod
     def to_img(x: torch.Tensor):
