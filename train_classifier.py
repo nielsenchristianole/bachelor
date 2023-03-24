@@ -30,10 +30,10 @@ def main(
         batch_size=hardware_kwargs.pop('batch_size'),
         num_workers=hardware_kwargs.pop('num_workers')
     )
-    in_channels, _, _ = data_module.dims
+    in_channels, *spacial = data_module.dims
     n_classes = data_module.num_classes
     
-    vgg_model = VGG5(in_channels, n_classes).to(device)
+    vgg_model = VGG5(spacial, in_channels, n_classes).to(device)
 
     loss_precesion = 3
     loss_callback = ModelCheckpoint(monitor="val_loss", mode='min', save_top_k=3, filename='loss-{epoch}-{val_loss:.%sf}' % loss_precesion)

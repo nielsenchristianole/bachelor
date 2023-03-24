@@ -5,6 +5,7 @@ import torch
 class ModelType(enum.Enum):
     """
     Which method the model uses in the reverse process
+    Choices: uncond, cond_embed, guided
     """
     uncond = 'uncond' # the model generates samples blindly
     cond_embed = 'cond_embed'  # the model generates samples using embeddings
@@ -14,6 +15,7 @@ class ModelType(enum.Enum):
 class VarType(enum.Enum):
     """
     How the model determines variance for sampling during the reverse process
+    Choices: zero, scheduled, learned
     """
     zero = 'zero' # DDIM, the model is not deterministic
     scheduled = 'scheduled' # the model uses the beta noise schedule as variance when sampling
@@ -84,6 +86,25 @@ def diffusion_uncond_defaults(size_multiplier=1, levels=3) -> dict:
     )
     return dict(
         model_type = ModelType.uncond,
+        lr = 3e-4,
+        epochs = 8,
+        unet_kwargs = unet_kwargs,
+        diffusion_kwargs = diffusion_kwargs
+    )
+
+
+def diffusion_uncond_simple() -> dict:
+    unet_kwargs = dict(
+        model_channels = 16,
+        num_res_blocks = 8,
+        dropout = 0.
+    )
+    diffusion_kwargs = dict(
+        num_diffusion_timesteps = 100,
+    )
+    return dict(
+        model_type = ModelType.uncond,
+        var_type = VarType.scheduled,
         lr = 3e-4,
         epochs = 8,
         unet_kwargs = unet_kwargs,

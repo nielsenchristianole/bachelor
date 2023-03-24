@@ -10,7 +10,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 
-from diffusion.script_util import diffusion_uncond_defaults, diffusion_cond_embed_defaults, get_hardware_kwargs
+from diffusion.script_util import diffusion_uncond_defaults, diffusion_cond_embed_defaults, get_hardware_kwargs, diffusion_uncond_simple
 from diffusion.lightning_modules import DiffusionWithModel, MNISTDataModule
 
 
@@ -19,11 +19,11 @@ def main(
     seed: int,
     *,
     hardware_kwargs: dict,
-    size_name:str='unknown'
+    experiment_name: str='unknown'
 ):
     work_dir = hardware_kwargs.pop('work_dir')
     data_dir = os.path.join(work_dir, 'datasets')
-    models_dir = os.path.join(work_dir, 'models', params['model_type'].name, f'{size_name}-{seed}')
+    models_dir = os.path.join(work_dir, 'models', f'{experiment_name}-{seed}')
     
     device = torch.device(hardware_kwargs.pop('device_name'))
     
@@ -82,4 +82,19 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     
-    multiple_trainings(args.hardware)
+    hardware = 'local' if args.hardware is None else args.hardware
+    
+    params = diffusion_uncond_simple()
+    
+    experiment_name = '-'.join((
+        'simple_unet',
+        params['model_type'].name,
+        params['var_type'].name
+    ))
+    
+    main(
+        params,
+        42,
+        hardware_kwargs=get_hardware_kwargs(hardware),
+        experiment_name=experiment_name
+    )

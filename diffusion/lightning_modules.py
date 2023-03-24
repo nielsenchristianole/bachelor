@@ -7,7 +7,8 @@ from numpy import random
 
 import pytorch_lightning as pl
 
-from diffusion.modules import UNet, Diffusion
+from .diffusion import Diffusion
+from .unet import SimpleUNet
 from torchvision import transforms
 from torchvision.datasets import MNIST
 from torch.utils.data import DataLoader, random_split
@@ -27,7 +28,7 @@ class DiffusionWithModel(pl.LightningModule):
         
         self.model_type = params.get('model_type')
         self.var_type = params.get('var_type')
-        self.model = UNet(
+        self.model = SimpleUNet(
             model_type=self.model_type,
             var_type=self.var_type,
             **params.get('unet_kwargs')
