@@ -10,7 +10,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 
-from diffusion.script_util import diffusion_uncond_defaults, diffusion_cond_embed_defaults, get_hardware_kwargs, diffusion_uncond_simple
+from diffusion.script_util import get_hardware_kwargs, diffusion_uncond_simple
 from diffusion.lightning_modules import DiffusionWithModel, MNISTDataModule
 
 
