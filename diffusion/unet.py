@@ -169,7 +169,7 @@ class SimpleAttention(nn.Module):
         # split into heads and then unpack q, k, v
         q, k, v = qkv.reshape(batch_dim * self.num_heads, self.head_channels * 3, length).split(self.head_channels, dim=1)
         # // scaled dot product attention
-        scale = 1 / math.sqrt(math.sqrt(self.head_channels))
+        scale = 1 / math.sqrt(math.sqrt(length)) # length or self.head_channels
         weight = torch.einsum("bct,bcs->bts", q * scale, k * scale)
         weight = torch.softmax(weight.float(), dim=-1).type(weight.dtype)
         a = torch.einsum("bts,bcs->bct", weight, v)

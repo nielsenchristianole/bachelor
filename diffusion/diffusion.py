@@ -12,7 +12,7 @@ from .unet import SimpleUNet
 class Diffusion:
     def __init__(
         self,
-        num_diffusion_timesteps=1000,
+        num_diffusion_timesteps=200,
         img_size=64,
         color_channels=3,
         num_classes=None,

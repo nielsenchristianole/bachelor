@@ -9,3 +9,7 @@
 *.sh
 datasets/
 models/
+
+
+# python stuff
+*.pyc
