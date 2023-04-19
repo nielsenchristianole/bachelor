@@ -62,39 +62,21 @@ def main(
     )
 
 
-def multiple_trainings(hardware=None):
-    # 6 different consistent seeds
-    hardware = 'local' if hardware is None else hardware
-    seed_generator = (seed for seed in random.default_rng(seed=42).integers(low=1000, high=9999, size=6))
-    for param_fn in [diffusion_cond_embed_defaults]: # [diffusion_uncond_defaults, diffusion_cond_embed_defaults]:
-        for param_args, size_name in zip(reversed([(1,2), (2, 2)]), reversed(['tiny', 'small'])): # zip(reversed([(1,2), (2, 2), (4, 3), (8, 3)]), reversed(['tiny', 'small', 'medium', 'large'])):
-            params = param_fn(*param_args)
-            main(
-                params,
-                next(seed_generator),
-                hardware_kwargs=get_hardware_kwargs(hardware),
-                size_name=size_name
-            )
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--hardware')
+    parser.add_argument('--exp_name')
     
     args = parser.parse_args()
     
     hardware = 'local' if args.hardware is None else args.hardware
+    exp_name = 'unnamed' if args.exp_name is None else args.exp_name
     
     params = diffusion_uncond_simple()
-    
-    experiment_name = '-'.join((
-        'simple_unet',
-        params['model_type'].name,
-        params['var_type'].name
-    ))
     
     main(
         params,
         42,
         hardware_kwargs=get_hardware_kwargs(hardware),
-        experiment_name=experiment_name
+        experiment_name=exp_name
     )

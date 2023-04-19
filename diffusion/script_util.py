@@ -72,27 +72,6 @@ def get_vgg_mnist_kwargs(hardware: str):
     else:
         raise NotImplementedError
 
-def diffusion_uncond_defaults(size_multiplier=1, levels=3) -> dict:
-    unet_kwargs = dict(
-        model_channels = 8 * size_multiplier,
-        num_res_blocks = 2 * size_multiplier,
-        dropout = 0.,
-        channel_mult = (1, 2, 4)[:levels],
-        resample_mode = None,
-        use_scale_shift_norm = False
-    )
-    diffusion_kwargs = dict(
-        num_diffusion_timesteps = 50 * size_multiplier,
-    )
-    return dict(
-        model_type = ModelType.uncond,
-        lr = 3e-4,
-        epochs = 8,
-        unet_kwargs = unet_kwargs,
-        diffusion_kwargs = diffusion_kwargs
-    )
-
-
 def diffusion_uncond_simple() -> dict:
     unet_kwargs = dict(
         model_channels = 16,
@@ -106,28 +85,8 @@ def diffusion_uncond_simple() -> dict:
         model_type = ModelType.uncond,
         var_type = VarType.scheduled,
         lr = 3e-4,
-        epochs = 8,
+        epochs = 40,
         unet_kwargs = unet_kwargs,
         diffusion_kwargs = diffusion_kwargs
     )
 
-
-def diffusion_cond_embed_defaults(size_multiplier=1, levels=3) -> dict:
-    unet_kwargs = dict(
-        model_channels = 8 * size_multiplier,
-        num_res_blocks = 2 * size_multiplier,
-        dropout = 0.,
-        channel_mult = (1, 2, 4)[:levels],
-        resample_mode = None,
-        use_scale_shift_norm = False
-    )
-    diffusion_kwargs = dict(
-        num_diffusion_timesteps = 50 * size_multiplier,
-    )
-    return dict(
-        model_type = ModelType.cond_embed,
-        lr = 3e-4,
-        epochs = 8,
-        unet_kwargs = unet_kwargs,
-        diffusion_kwargs = diffusion_kwargs
-    )
