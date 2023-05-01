@@ -71,6 +71,31 @@ def get_vgg_mnist_kwargs(hardware: str):
     else:
         raise NotImplementedError
 
+def get_vae_mnist_kwargs(hardware: str):
+    if hardware == 'local':
+        return dict(
+            batch_size=64,
+            accelerator='cpu',
+            strategy='dp',
+            num_nodes=1,
+            num_workers=8,
+            device_name='cuda',
+            work_dir='C:/Users/niels/local_data/bachelor'
+        )
+    elif hardware == 'hpc':
+        return dict(
+            batch_size=64,
+            accelerator='gpu',
+            strategy='ddp',
+            devices=torch.cuda.device_count(),
+            num_nodes=1,
+            num_workers=min(16, os.cpu_count()),
+            device_name='cuda',
+            work_dir='./'
+        )
+    else:
+        raise NotImplementedError
+    
 def diffusion_uncond_simple() -> dict:
     unet_kwargs = dict(
         model_channels = 16,

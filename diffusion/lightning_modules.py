@@ -116,12 +116,16 @@ class MNISTDataModule(pl.LightningDataModule):
         self,
         data_dir,
         batch_size,
-        num_workers=None
+        num_workers=None,
+        normalize=True
     ):
         super().__init__()
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.num_workers = os.cpu_count() if num_workers is None else num_workers
+        self.normalize = normalize
+        
+        self.normelization = transforms.Normalize((0.,), (1.,)) if normalize else nn.Identity() # transforms.Normalize((0.1307,), (0.3081,)),
         
         self.num_classes = 10
         self.dims = (1, 28, 28)
@@ -129,7 +133,7 @@ class MNISTDataModule(pl.LightningDataModule):
         self.transform = transforms.Compose(
             [
                 transforms.ToTensor(),
-                transforms.Normalize((0.,), (1.,)) # transforms.Normalize((0.1307,), (0.3081,)),
+                self.normelization
             ]
         )
     

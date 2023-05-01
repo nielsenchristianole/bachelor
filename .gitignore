@@ -12,4 +12,5 @@ models/
 
 
 # python stuff
-*.pyc
+**/*.pyc
+diffusion/__pycache__
