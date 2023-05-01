@@ -9,7 +9,6 @@ class ModelType(enum.Enum):
     """
     uncond = 'uncond' # the model generates samples blindly
     cond_embed = 'cond_embed'  # the model generates samples using embeddings
-    guided = 'guided'  # the model is guided with gradients from a classifier
 
 
 class VarType(enum.Enum):
@@ -82,10 +81,9 @@ def diffusion_uncond_simple() -> dict:
         num_diffusion_timesteps = 100,
     )
     return dict(
-        model_type = ModelType.uncond,
-        var_type = VarType.scheduled,
         lr = 3e-4,
         epochs = 40,
+        lambda_vlb_weight = 0.001,
         unet_kwargs = unet_kwargs,
         diffusion_kwargs = diffusion_kwargs
     )

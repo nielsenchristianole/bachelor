@@ -27,17 +27,32 @@ class Diffusion:
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.device = device
 
+        # betas
         self.beta = self.prepare_noise_schedule()
         self.std = np.sqrt(self.beta)
         
+        # alphas
         self.alpha = 1. - self.beta
-        self.alpha_hat = np.cumprod(self.alpha)
+        self.alpha_bar = np.cumprod(self.alpha)
+        self.alpha_bar_t_minus_one = np.append(1., self.alpha_bar[:-1]) # shift right
         
-        self.sqrt_alpha_hat = np.sqrt(self.alpha_hat)
-        self.sqrt_one_minus_alpha_hat = np.sqrt(1 - self.alpha_hat)
-        self.noise_coef = self.beta / self.sqrt_one_minus_alpha_hat
-        self.recip_sqrt_alpha = 1 / np.sqrt(self.alpha)
-
+        # sqrt alphas
+        self.sqrt_alpha_bar = np.sqrt(self.alpha_bar)
+        self.sqrt_one_minus_alpha_bar = np.sqrt(1. - self.alpha_bar)
+        self.recip_sqrt_alpha = 1. / np.sqrt(self.alpha)
+        
+        # extra betas
+        self.beta_tilde = (1. - self.alpha_bar_t_minus_one) / (1. - self.alpha_bar) * self.beta
+        self.log_beta = np.log(self.beta)
+        self.log_beta_tilde = np.log(np.append(self.beta_tilde[1], self.beta_tilde[1:])) # first element not -inf
+        
+        # misc.
+        self.noise_coef = self.beta / self.sqrt_one_minus_alpha_bar
+        self.posterior_variance = self.beta * (1. - self.alpha_bar_t_minus_one) / (1. - self.alpha_bar)
+        self.posterior_log_variance = np.log(np.append(self.posterior_variance[1], self.posterior_variance[1:])) # first element not -inf
+        self.posterior_mean_coef1 = self.beta * np.sqrt(self.alpha_bar_t_minus_one) / (1.0 - self.alpha_bar)
+        self.posterior_mean_coef2 = (1.0 - self.alpha_bar_t_minus_one) * np.sqrt(self.alpha) / (1.0 - self.alpha_bar)
+        
     def q_sample(self, x_0: torch.Tensor, t: torch.Tensor, noise: torch.Tensor=None):
         """
         Sample from q(x_t | x_0) using the diffusion process
@@ -45,33 +60,53 @@ class Diffusion:
         if noise is None:
             noise = torch.randn_like(x_0, device=self.device)
         
-        c1 = self._get(self.sqrt_alpha_hat, t, x_0.shape)
-        c2 = self._get(self.sqrt_one_minus_alpha_hat, t, x_0.shape)
+        c1 = self._get(self.sqrt_alpha_bar, t, x_0.shape)
+        c2 = self._get(self.sqrt_one_minus_alpha_bar, t, x_0.shape)
         
         return c1 * x_0 + c2 * noise, noise
     
-    def p_mean_std(self, model: SimpleUNet, x_t: torch.Tensor, t: torch.Tensor, y: torch.Tensor=None):
+    def model_err_pred_to_mean(self, err: torch.Tensor, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """
+        Used to calculate the estimate for the mean in the reverse process using the predicted noise
+        """
+        c1 = self._get(self.recip_sqrt_alpha, t, x_t.shape)
+        c2 = self._get(self.noise_coef, t, x_t.shape)
+        return c1 * (x_t - c2 * err)
+    
+    def model_v_pred_to_std(self, v: torch.Tensor, t: torch.Tensor) -> dict[str, torch.Tensor]:
+        """
+        Used to calculate the estimate for the variance in the reverse process using the predicted noise, only for learned variance
+        """
+        out = dict()
+        # v in [-1, 1] -> v in [0, 1]
+        v = (v + 1) / 2
+        log_beta = self._get(self.log_beta, t, v.shape)
+        log_beta_tilde = self._get(self.log_beta_tilde, t, v.shape)
+        log_var = v * log_beta + (1 - v) * log_beta_tilde
+        out['std'] = torch.exp(0.5 * log_var) # look how good I am at rules of exponent calculations B)
+        out['log_var'] = log_var
+        return out
+    
+    def p_mean_std(self, model: SimpleUNet, x_t: torch.Tensor, t: torch.Tensor, y: torch.Tensor=None) -> dict[str, torch.Tensor]:
         """
         Calculate mean and std of p(x_{t-1} | x_t) using the reverse process and model
         """
+        out = dict()
         model_out = model(x_t, t, y=y)
         if model.var_type in [VarType.zero, VarType.scheduled]:
-            mu = model_out
+            err = model_out
             if model.var_type is VarType.zero:
-                std = torch.zeros_like(mean)
+                out['std'] = torch.zeros_like(x_t)
             else:
-                std = self._get(self.std, t, x_t.shape)
+                out['std'] = self._get(self.std, t, x_t.shape)
         elif model.var_type is VarType.learned:
-            mu, var = self._split_model_out(model_out, x_t.shape)
-            std = torch.sqrt(var)
+            err, v = self._split_model_out(model_out, x_t.shape)
+            out |= self.model_v_pred_to_std(v, t) # add to dict
         else:
             raise NotImplementedError
         
-        c1 = self._get(self.recip_sqrt_alpha, t, x_t.shape)
-        c2 = self._get(self.noise_coef, t, x_t.shape)
-        mean = c1 * (x_t - c2 * mu)
-        
-        return mean, std
+        out['mean'] = self.model_err_pred_to_mean(err, x_t, t)
+        return out
 
     def p_sample(
         self,
@@ -83,7 +118,9 @@ class Diffusion:
         """
         Sample from p(x_{t-1} | x_t) using the reverse process and model
         """
-        mean, std = self.p_mean_std(model, x, t, y=y)
+        out = self.p_mean_std(model, x, t, y=y)
+        mean, std = out['mean'], out['std']
+        # set noise to zero when doing the last step
         noise = torch.randn_like(x, device=self.device) * (t > 0)[:, None, None, None]
         return mean + std * noise
     
@@ -94,9 +131,9 @@ class Diffusion:
         t_upper: int,
         x: torch.Tensor=None,
         y: torch.Tensor=None,
-        n_samples=None,
-        to_img=False,
-        show_pbar=False
+        n_samples: int=None,
+        to_img: bool=False,
+        show_pbar: bool=False
     ):
         """
         Loops through the reverse process from t_upper to t_lower
@@ -120,13 +157,19 @@ class Diffusion:
         
         return self.to_img(x) if to_img else x
  
-    def sample(self, model: SimpleUNet, n_samples, y: bool|torch.Tensor=None, show_pbar=True) -> tuple[torch.Tensor, torch.Tensor]:
+    def sample(
+        self,
+        model: SimpleUNet,
+        n_samples: int=1,
+        y: bool|torch.Tensor=None,
+        show_pbar=True,
+        to_img=True
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        Samples unconditionally using the reverse process starting from gaussian noise, returns labels
+        Samples using the reverse process starting from gaussian noise, returns labels
         """
         if isinstance(y, bool):
-            # set to None if y==False
-            y = self.sample_classes(n_samples) if y else None
+            y = self.sample_classes(n_samples) if y else None # set to None if y==False
         elif isinstance(y, torch.Tensor):
             assert y.shape(0) == n_samples, \
                 f"{y.shape=} not campatible with {n_samples=}"
@@ -140,7 +183,7 @@ class Diffusion:
             t_upper=self.num_diffusion_timesteps-1,
             y=y,
             n_samples=n_samples,
-            to_img=True,
+            to_img=to_img,
             show_pbar=show_pbar
             )
         return samples, y
@@ -306,6 +349,36 @@ class Diffusion:
         betas = np.linspace(beta_start, beta_end, self.num_diffusion_timesteps)
         assert (betas > 0).all() and (betas <= 1).all(), f"{self.num_diffusion_timesteps=} incompateble, 0 < beta_s <= 1"
         return betas
+    
+    def calculate_loss_vlb(
+        self,
+        err: torch.Tensor,
+        v: torch.Tensor,
+        x_0: torch.Tensor,
+        x_t: torch.Tensor,
+        t: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Calculate and returns the variational lower bound loss
+        """
+        true_mean = self._get(self.posterior_mean_coef1, t, x_t.shape) * x_0 + self._get(self.posterior_mean_coef2, t, x_t.shape) * x_t
+        true_log_var = self._get(self.posterior_log_variance, t, x_t.shape)
+        pred_mean = self.model_err_pred_to_mean(err, x_t, t)
+        pred_log_var = self.model_v_pred_to_std(v, t)['log_var']
+        
+        # loss term from Diffusion Models Beat GANs on Image Synthesis
+        loss_vlb = 0.5 * (
+        -1.0
+        + pred_log_var
+        - true_log_var
+        + torch.exp(true_log_var - pred_log_var)
+        + ((true_mean - pred_mean) ** 2) * torch.exp(-pred_log_var)
+        )
+        # take mean over non batch dim
+        loss_vlb = loss_vlb.mean(dim=list(range(1, len(loss_vlb.shape))))
+        # set loss to 0 when t is 0|T. No loss when no variance or when x_T is pure noise
+        # last does not happen during training as the loss is only calculated for the reverse process
+        return torch.where((t == 0), torch.zeros_like(loss_vlb), loss_vlb).mean()
     
     @staticmethod
     def _split_model_out(

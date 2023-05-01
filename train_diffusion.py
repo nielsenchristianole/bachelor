@@ -10,14 +10,14 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 
-from diffusion.script_util import get_hardware_kwargs, diffusion_uncond_simple
+from diffusion.script_util import get_hardware_kwargs, diffusion_uncond_simple, ModelType, VarType
 from diffusion.lightning_modules import DiffusionWithModel, MNISTDataModule
 
 
 def main(
     params: dict,
-    seed: int,
     *,
+    seed: int,
     hardware_kwargs: dict,
     experiment_name: str='unknown'
 ):
@@ -42,14 +42,15 @@ def main(
     
     combined_model = DiffusionWithModel(params).to(device)
 
-    loss_precesion = 3
-    loss_callback = ModelCheckpoint(monitor="val_loss", mode='min', save_top_k=3, filename='loss-{epoch}-{val_loss:.%sf}' % loss_precesion)
-    epoch_callback = ModelCheckpoint(every_n_epochs=2, filename='epoch-{epoch}-{val_loss:.%sf}' % loss_precesion)
+    loss_precesion = 5
     last_callback = ModelCheckpoint(save_last=True, filename='last-{epoch}-{val_loss:.%sf}' % loss_precesion)
+    epoch_callback = ModelCheckpoint(every_n_epochs=5, filename='epoch-{epoch}-{val_loss:.%sf}' % loss_precesion)
+    loss_callback = ModelCheckpoint(monitor="val_loss", mode='min', save_top_k=3, filename='loss-{epoch}-{val_loss:.%sf}' % loss_precesion)
+    callbacks=[last_callback, epoch_callback, loss_callback]
     
     trainer = pl.Trainer(
         default_root_dir=models_dir,
-        callbacks=[loss_callback, epoch_callback, last_callback],
+        callbacks=callbacks,
         max_epochs=params.get('epochs'),
         logger=CSVLogger(models_dir, flush_logs_every_n_steps=100),
         log_every_n_steps=10,
@@ -63,20 +64,32 @@ def main(
 
 
 if __name__ == '__main__':
+    # parse args
     parser = argparse.ArgumentParser()
     parser.add_argument('--hardware')
     parser.add_argument('--exp_name')
-    
+    parser.add_argument('--model_type')
+    parser.add_argument('--var_type')
+    parser.add_argument('--epochs', type=int)
     args = parser.parse_args()
     
-    hardware = 'local' if args.hardware is None else args.hardware
-    exp_name = 'unnamed' if args.exp_name is None else args.exp_name
-    
+    # set defaults
+    hardware   = 'local' if args.hardware is None else args.hardware
+    exp_name   = 'unnamed' if args.exp_name is None else args.exp_name
+    model_type = 'uncond' if args.model_type is None else args.model_type
+    var_type   = 'learned' if args.var_type is None else args.var_type
+    epochs     = 1 if args.epochs is None else args.epochs
+
     params = diffusion_uncond_simple()
+    params['model_type'] = ModelType[model_type]
+    params['var_type'] = VarType[var_type]
+    
+    if epochs is not None:
+        params['epochs'] = epochs
     
     main(
         params,
-        42,
+        seed=42069,
         hardware_kwargs=get_hardware_kwargs(hardware),
         experiment_name=exp_name
     )

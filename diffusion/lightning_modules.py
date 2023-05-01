@@ -1,33 +1,44 @@
 import os
 
-import torch
-from torch import nn
-
 from numpy import random
 
+import torch
+from torch import nn
 import pytorch_lightning as pl
 
-from .diffusion import Diffusion
-from .unet import SimpleUNet
+from types import FunctionType
+
 from torchvision import transforms
 from torchvision.datasets import MNIST
 from torch.utils.data import DataLoader, random_split
 
+from .diffusion import Diffusion
+from .unet import SimpleUNet
 from .script_util import ModelType, VarType
+from .evaluations import DiffusionEvaluator
 
 
 class DiffusionWithModel(pl.LightningModule):
     def __init__(
         self,
         params: dict,
-        loss_fn: nn.Module=None,
+        encoder: nn.Module=None,
+        classifier: nn.Module=None,
+        var_dataloader: DataLoader=None
     ):
+        """
+        This is a module used purely for training and testing the models
+        classifier: only used for testing during training
+        encoder: only used for testing during training
+        var_dataloader: only used for testing during training
+        """
         super().__init__()
         
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=('encoder', 'classifier', 'var_dataloader'))
         
         self.model_type = params.get('model_type')
         self.var_type = params.get('var_type')
+        self.lambda_vlb_weight = params.get('lambda_vlb_weight', 0.001)
         self.model = SimpleUNet(
             model_type=self.model_type,
             var_type=self.var_type,
@@ -35,42 +46,69 @@ class DiffusionWithModel(pl.LightningModule):
         )
         self.diffusion = Diffusion(**params.get('diffusion_kwargs'))
         self.params = params
-        self.loss_fn = nn.MSELoss() if loss_fn is None else loss_fn
+        self.MSEloss = nn.MSELoss()
+        
+        self.evaluator = None
+        self.encoder = encoder
+        self.classifier = classifier
+        self.var_dataloader = var_dataloader
+        
+    def forward(self, x):
+        return self.model.forward(x)
     
-    def process_batch(self, batch):
-        x, y = batch
-        t = self.diffusion.sample_timesteps(x.shape[0])
-        x_t, noise = self.diffusion.q_sample(x, t)
+    def process_batch(self, batch, vlb_logger: FunctionType=None):
+        x_0, y = batch
+        t = self.diffusion.sample_timesteps(x_0.shape[0])
+        x_t, noise = self.diffusion.q_sample(x_0, t)
         # trains unconditionally 10% of the time
         if self.model_type is ModelType.cond_embed and random.rand() < 0.1:
             y = None
         model_out = self.model.forward(x_t, t, y)
-        if self.var_type is VarType.learned:
-            raise NotImplementedError
+        if self.var_type is VarType.scheduled:
+            loss = self.MSEloss(model_out, noise)
+        elif self.var_type is VarType.learned:
+            err, v = self.diffusion._split_model_out(model_out, x_t.shape)
+            loss_simple = self.MSEloss(err, noise)
+            # variational lower bound
+            loss_vlb = self.diffusion.calculate_loss_vlb(err.detach(), v, x_0, x_t, t) # should not use D_kl to train mean prediction
+            (vlb_logger is None) or vlb_logger(loss_vlb) # log if logger is provided
+            loss = loss_simple + self.lambda_vlb_weight * loss_vlb
         else:
-            loss = self.loss_fn(model_out, noise)
+            raise NotImplementedError(f'Unknown {self.var_type=}')
         return loss
-    
+
     def training_step(self, batch, batch_idx):
-        loss = self.process_batch(batch)
+        vlb_logger = lambda loss_vlb: self.log('train_vlb_loss', loss_vlb, on_step=True, prog_bar=False, logger=True)
+        loss = self.process_batch(batch, vlb_logger=vlb_logger)
         self.log('train_loss', loss, on_step=True, prog_bar=True, logger=True)
         return loss
         
     def validation_step(self, batch, batch_idx):
-        loss = self.process_batch(batch)
+        vlb_logger = lambda loss_vlb: self.log('val_vlb_loss', loss_vlb, on_epoch=True, prog_bar=False, logger=True)
+        loss = self.process_batch(batch, vlb_logger=vlb_logger)
         self.log('val_loss', loss, on_epoch=True, prog_bar=True, logger=True)
         return loss
     
     def test_step(self, batch, batch_idx):
-        loss = self.process_batch(batch)
+        vlb_logger = lambda loss_vlb: self.log('test_vlb_loss', loss_vlb, on_epoch=True, prog_bar=False, logger=True)
+        loss = self.process_batch(batch, vlb_logger=vlb_logger)
         self.log('test_loss', loss, on_epoch=True, prog_bar=True, logger=True)
         return loss
+    
+    def on_train_epoch_end(self) -> None:
+        """
+        Does a full evaluation on the end of every training epoch using the evaluator
+        """
+        if self.evaluator is None:
+            self.evaluator = DiffusionEvaluator(self.log, dataloader=self.var_dataloader, encoder=self.encoder, classifier=self.classifier)
+        self.evaluator.unet, self.evaluator.diffusion = self.extract_models()
+        self.evaluator.do_all_tests()
     
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.params.get('lr'))
     
-    def extract_models(self):
-        return self.model.to(self.device), self.diffusion
+    def extract_models(self) -> tuple[SimpleUNet, Diffusion]:
+        return self.model.to(self.device).eval(), self.diffusion
     
 
 class MNISTDataModule(pl.LightningDataModule):
