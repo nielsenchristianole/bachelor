@@ -47,67 +47,64 @@ class SimpleVAE(pl.LightningModule):
         
         self.normelize = transforms.Normalize((0.,), (1.,)) if training_normelization else nn.Identity()
         
-        self.encoder_cnn = nn.Sequential(
-            nn.Conv2d(in_channels, 16, (3,3), padding='same'),
-            nn.ReLU(),
-            nn.Conv2d(16, 16, (3,3), padding='same'),
-            nn.MaxPool2d((2,2)),
-            nn.InstanceNorm2d(16),
-            nn.ReLU(),
-            nn.Conv2d(16, 32, (3,3), padding='same'),
-            nn.ReLU(),
-            nn.Conv2d(32, 32, (3,3), padding='same'),
-            nn.MaxPool2d((2,2)),
-            nn.InstanceNorm2d(32),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, (3,3), padding='same'),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, (3,3), padding='same'),
-            global_pooling(global_pool_kernal_dim) # global max pooling
-        )
+        if use_simple:
+            self.simple_encoder = nn.Sequential(
+                nn.Linear(in_features=prod_spacial, out_features=512),
+                nn.ReLU(),
+                nn.Linear(in_features=512, out_features=256),
+                nn.ReLU(),
+                nn.Linear(in_features=256, out_features=128),
+                nn.ReLU(),
+                nn.Linear(in_features=128, out_features=2*latens_dim)
+            )
+            self.simple_decoder = nn.Sequential(
+                nn.Linear(in_features=latens_dim, out_features=128),
+                nn.ReLU(),
+                nn.Linear(in_features=128, out_features=256),
+                nn.ReLU(),
+                nn.Linear(in_features=256, out_features=512),
+                nn.ReLU(),
+                nn.Linear(in_features=512, out_features=prod_spacial)
+            )
+        else:
+            self.encoder_cnn = nn.Sequential(
+                nn.Conv2d(in_channels, 16, (3,3), padding='same'),
+                nn.ReLU(),
+                nn.Conv2d(16, 16, (3,3), padding='same'),
+                nn.MaxPool2d((2,2)),
+                nn.InstanceNorm2d(16),
+                nn.ReLU(),
+                nn.Conv2d(16, 32, (3,3), padding='same'),
+                nn.ReLU(),
+                nn.Conv2d(32, 32, (3,3), padding='same'),
+                nn.MaxPool2d((2,2)),
+                nn.InstanceNorm2d(32),
+                nn.ReLU(),
+                nn.Conv2d(32, 64, (3,3), padding='same'),
+                nn.ReLU(),
+                nn.Conv2d(64, 64, (3,3), padding='same'),
+                global_pooling(global_pool_kernal_dim) # global max pooling
+            )
+            self.encoder_dense = nn.Sequential(
+                nn.Dropout(dropout),
+                nn.Linear(64, 64),
+                nn.Dropout(dropout),
+                nn.ReLU(),
+                nn.Linear(64, 2 * latens_dim)
+            )
+            self.decoder = nn.Sequential(
+                nn.Linear(latens_dim, 128),
+                nn.Dropout(dropout),
+                nn.ReLU(),
+                nn.Linear(128, 256),
+                nn.Dropout(dropout),
+                nn.ReLU(),
+                nn.Linear(256, 512),
+                nn.Dropout(dropout),
+                nn.ReLU(),
+                nn.Linear(512, prod_spacial),
+            )
         
-        self.encoder_dense = nn.Sequential(
-            nn.Dropout(dropout),
-            nn.Linear(64, 64),
-            nn.Dropout(dropout),
-            nn.ReLU(),
-            nn.Linear(64, 2 * latens_dim)
-        )
-
-        self.decoder = nn.Sequential(
-            nn.Linear(latens_dim, 128),
-            nn.Dropout(dropout),
-            nn.ReLU(),
-            nn.Linear(128, 256),
-            nn.Dropout(dropout),
-            nn.ReLU(),
-            nn.Linear(256, 512),
-            nn.Dropout(dropout),
-            nn.ReLU(),
-            nn.Linear(512, prod_spacial),
-        )
-        
-        self.simple_encoder = nn.Sequential(
-            nn.Linear(in_features=prod_spacial, out_features=512),
-            nn.ReLU(),
-            nn.Linear(in_features=512, out_features=256),
-            nn.ReLU(),
-            nn.Linear(in_features=256, out_features=128),
-            nn.ReLU(),
-            nn.Linear(in_features=128, out_features=2*latens_dim)
-        )
-        self.simple_decoder = nn.Sequential(
-            nn.Linear(in_features=latens_dim, out_features=128),
-            nn.ReLU(),
-            nn.Linear(in_features=128, out_features=256),
-            nn.ReLU(),
-            nn.Linear(in_features=256, out_features=512),
-            nn.ReLU(),
-            nn.Linear(in_features=512, out_features=prod_spacial)
-        )
-        
-        self.loss_fn = nn.BCELoss()
-
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         if self.use_simple:
             x = torch.flatten(x, 1)
