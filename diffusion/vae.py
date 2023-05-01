@@ -4,12 +4,17 @@ import torch
 from torch import nn
 from torchvision import transforms
 
+import numpy as np
+
 import math as m
 
 import pytorch_lightning as pl
+
+
 const = m.log(2 * m.pi) / 2
 get_log_prob = lambda x, mu, log_std: -log_std - const - torch.square((x - mu) / torch.exp(log_std)) / 2
 reduce = lambda x: torch.sum(x.view(x.size(0), -1), dim=1)
+
 
 class SimpleVAE(pl.LightningModule):
     def __init__(
@@ -20,7 +25,8 @@ class SimpleVAE(pl.LightningModule):
         global_pooling: nn.Module=nn.MaxPool2d,
         lr=1e-4,
         training_normelization=True,
-        beta=1.
+        beta=1.,
+        use_simple=False
     ):
         super().__init__()
         
@@ -32,6 +38,9 @@ class SimpleVAE(pl.LightningModule):
         self.lr = lr
         self.training_normelization = training_normelization
         self.beta = beta
+        self.use_simple = use_simple
+        
+        prod_spacial = np.prod(input_dims)
         
         in_channels, *spacial = input_dims
         global_pool_kernal_dim = [d // 2 // 2 for d in spacial]
@@ -66,24 +75,20 @@ class SimpleVAE(pl.LightningModule):
         )
 
         self.decoder = nn.Sequential(
-            nn.Linear(latens_dim, 16),
+            nn.Linear(latens_dim, 128),
             nn.Dropout(dropout),
             nn.ReLU(),
-            nn.Linear(16, 32),
+            nn.Linear(128, 256),
             nn.Dropout(dropout),
             nn.ReLU(),
-            nn.Linear(32, 64),
+            nn.Linear(256, 512),
             nn.Dropout(dropout),
             nn.ReLU(),
-            nn.Linear(64, 128),
-            nn.Dropout(dropout),
-            nn.ReLU(),
-            nn.Linear(128, 784),
-            nn.Sigmoid()
+            nn.Linear(512, prod_spacial),
         )
         
-        self.encoder = nn.Sequential(
-            nn.Linear(in_features=28*28, out_features=512),
+        self.simple_encoder = nn.Sequential(
+            nn.Linear(in_features=prod_spacial, out_features=512),
             nn.ReLU(),
             nn.Linear(in_features=512, out_features=256),
             nn.ReLU(),
@@ -91,21 +96,22 @@ class SimpleVAE(pl.LightningModule):
             nn.ReLU(),
             nn.Linear(in_features=128, out_features=2*latens_dim)
         )
-        self.decoder = nn.Sequential(
+        self.simple_decoder = nn.Sequential(
             nn.Linear(in_features=latens_dim, out_features=128),
             nn.ReLU(),
             nn.Linear(in_features=128, out_features=256),
             nn.ReLU(),
             nn.Linear(in_features=256, out_features=512),
             nn.ReLU(),
-            nn.Linear(in_features=512, out_features=28*28)
+            nn.Linear(in_features=512, out_features=prod_spacial)
         )
         
         self.loss_fn = nn.BCELoss()
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
-        x = torch.flatten(x, 1)
-        return(self.encoder(x))
+        if self.use_simple:
+            x = torch.flatten(x, 1)
+            return(self.simple_encoder(x))
         x = self.encoder_cnn(x)
         x = torch.flatten(x, 1)
         return self.encoder_dense(x)
@@ -113,13 +119,21 @@ class SimpleVAE(pl.LightningModule):
     def split_mean_log_std(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         return tuple(torch.split(x, 2, 1))
     
+    def get_latent(self, x: torch.Tensor):
+        z = self.encode(x)
+        mu, log_std = self.split_mean_log_std(z)
+        return mu
+    
     def reparameterize(self, mu: torch.Tensor, log_std: torch.Tensor) -> torch.Tensor:
         std = torch.exp(log_std)
         eps = torch.randn_like(std)
         return mu + std * eps
 
-    def decode(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.decoder(x)
+    def decode(self, z: torch.Tensor) -> torch.Tensor:
+        if self.use_simple:
+            x = self.simple_decoder(z)
+        else:
+            x = self.decoder(z)
         x = x.view(-1, *self.input_dims)
         return x
 
