@@ -12,6 +12,9 @@ from pytorch_lightning.loggers import CSVLogger
 
 from diffusion.script_util import get_hardware_kwargs, diffusion_uncond_simple, ModelType, VarType
 from diffusion.lightning_modules import DiffusionWithModel, MNISTDataModule
+from diffusion.evaluations import DiffusionEvaluator
+from diffusion.vae import SimpleVAE
+from diffusion.vgg5 import VGG5
 
 
 def main(
@@ -23,6 +26,7 @@ def main(
 ):
     work_dir = hardware_kwargs.pop('work_dir')
     data_dir = os.path.join(work_dir, 'datasets')
+    eval_dir = os.path.join(work_dir, 'eval_models')
     models_dir = os.path.join(work_dir, 'models', f'{experiment_name}-{seed}')
     
     device = torch.device(hardware_kwargs.pop('device_name'))
@@ -41,6 +45,15 @@ def main(
     params['diffusion_kwargs']['color_channels'] = params['unet_kwargs']['out_channels'] = params['unet_kwargs']['in_channels'] = channels
     
     combined_model = DiffusionWithModel(params).to(device)
+    
+    # data_module.prepare_data()
+    # data_module.setup('fit')
+    # combined_model.evaluator = DiffusionEvaluator(
+    #     logger=combined_model.log,
+    #     dataloader=data_module.val_dataloader(),
+    #     vae=SimpleVAE.load_from_checkpoint(p:=os.path.join(eval_dir, 'vae.ckpt')).to(device) if os.path.exists(p) else None,
+    #     classifier=VGG5.load_from_checkpoint(p:=os.path.join(eval_dir, 'classifier.ckpt')).to(device) if os.path.exists(p) else None,
+    # )
 
     loss_precesion = 5
     last_callback = ModelCheckpoint(save_last=True, filename='last-{epoch}-{val_loss:.%sf}' % loss_precesion)
@@ -76,7 +89,7 @@ if __name__ == '__main__':
     # set defaults
     hardware   = 'local' if args.hardware is None else args.hardware
     exp_name   = 'unnamed' if args.exp_name is None else args.exp_name
-    model_type = 'uncond' if args.model_type is None else args.model_type
+    model_type = 'cond_embed' if args.model_type is None else args.model_type
     var_type   = 'learned' if args.var_type is None else args.var_type
     epochs     = 1 if args.epochs is None else args.epochs
 

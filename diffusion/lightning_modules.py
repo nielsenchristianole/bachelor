@@ -22,9 +22,8 @@ class DiffusionWithModel(pl.LightningModule):
     def __init__(
         self,
         params: dict,
-        encoder: nn.Module=None,
-        classifier: nn.Module=None,
-        var_dataloader: DataLoader=None
+        *,
+        evaluator: DiffusionEvaluator|None=None
     ):
         """
         This is a module used purely for training and testing the models
@@ -48,10 +47,7 @@ class DiffusionWithModel(pl.LightningModule):
         self.params = params
         self.MSEloss = nn.MSELoss()
         
-        self.evaluator = None
-        self.encoder = encoder
-        self.classifier = classifier
-        self.var_dataloader = var_dataloader
+        self.evaluator = evaluator
         
     def forward(self, x):
         return self.model.forward(x)
@@ -99,8 +95,8 @@ class DiffusionWithModel(pl.LightningModule):
         """
         Does a full evaluation on the end of every training epoch using the evaluator
         """
-        if self.evaluator is None:
-            self.evaluator = DiffusionEvaluator(self.log, dataloader=self.var_dataloader, encoder=self.encoder, classifier=self.classifier)
+        if self.evaluator.is_prepared is False:
+            self.evaluator.setup()
         self.evaluator.unet, self.evaluator.diffusion = self.extract_models()
         self.evaluator.do_all_tests()
     

@@ -48,24 +48,25 @@ class SimpleVAE(pl.LightningModule):
         self.normelize = transforms.Normalize((0.,), (1.,)) if training_normelization else nn.Identity()
         
         if use_simple:
-            self.simple_encoder = nn.Sequential(
-                nn.Linear(in_features=prod_spacial, out_features=512),
-                nn.ReLU(),
-                nn.Linear(in_features=512, out_features=256),
-                nn.ReLU(),
-                nn.Linear(in_features=256, out_features=128),
-                nn.ReLU(),
-                nn.Linear(in_features=128, out_features=2*latens_dim)
-            )
-            self.simple_decoder = nn.Sequential(
-                nn.Linear(in_features=latens_dim, out_features=128),
-                nn.ReLU(),
-                nn.Linear(in_features=128, out_features=256),
-                nn.ReLU(),
-                nn.Linear(in_features=256, out_features=512),
-                nn.ReLU(),
-                nn.Linear(in_features=512, out_features=prod_spacial)
-            )
+            # self.simple_encoder = nn.Sequential(
+            #     nn.Linear(in_features=prod_spacial, out_features=512),
+            #     nn.ReLU(),
+            #     nn.Linear(in_features=512, out_features=256),
+            #     nn.ReLU(),
+            #     nn.Linear(in_features=256, out_features=128),
+            #     nn.ReLU(),
+            #     nn.Linear(in_features=128, out_features=2*latens_dim)
+            # )
+            # self.simple_decoder = nn.Sequential(
+            #     nn.Linear(in_features=latens_dim, out_features=128),
+            #     nn.ReLU(),
+            #     nn.Linear(in_features=128, out_features=256),
+            #     nn.ReLU(),
+            #     nn.Linear(in_features=256, out_features=512),
+            #     nn.ReLU(),
+            #     nn.Linear(in_features=512, out_features=prod_spacial)
+            # )
+            pass
         else:
             self.encoder_cnn = nn.Sequential(
                 nn.Conv2d(in_channels, 16, (3,3), padding='same'),
