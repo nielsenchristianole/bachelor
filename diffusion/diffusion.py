@@ -337,7 +337,7 @@ class Diffusion:
         """
         Samples classes uniformly
         """
-        return torch.randint(low=0, high=self.num_classes, size=(n_samples,), device=self.device)
+        return torch.randint(low=0, high=self.num_classes, size=(n_samples,), device=self.device).long()
     
     def prepare_noise_schedule(self):
         """
