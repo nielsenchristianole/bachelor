@@ -96,7 +96,7 @@ def get_vae_mnist_kwargs(hardware: str):
     else:
         raise NotImplementedError
     
-def diffusion_uncond_simple() -> dict:
+def diffusion_simple() -> dict:
     unet_kwargs = dict(
         model_channels = 16,
         num_res_blocks = 8,

@@ -10,7 +10,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger
 
-from diffusion.script_util import get_hardware_kwargs, diffusion_uncond_simple, ModelType, VarType
+from diffusion.script_util import get_hardware_kwargs, diffusion_simple, ModelType, VarType
 from diffusion.lightning_modules import DiffusionWithModel, MNISTDataModule
 from diffusion.evaluations import DiffusionEvaluator
 from diffusion.vae import SimpleVAE
@@ -93,7 +93,7 @@ if __name__ == '__main__':
     var_type   = 'learned' if args.var_type is None else args.var_type
     epochs     = 1 if args.epochs is None else args.epochs
 
-    params = diffusion_uncond_simple()
+    params = diffusion_simple()
     params['model_type'] = ModelType[model_type]
     params['var_type'] = VarType[var_type]
     
