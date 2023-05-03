@@ -95,8 +95,10 @@ class DiffusionWithModel(pl.LightningModule):
         """
         Does a full evaluation on the end of every training epoch using the evaluator
         """
+        if self.evaluator is None:
+            return
         if self.evaluator.is_prepared is False:
-            self.evaluator.setup()
+            self.evaluator.prepare()
         self.evaluator.unet, self.evaluator.diffusion = self.extract_models()
         self.evaluator.do_all_tests()
     

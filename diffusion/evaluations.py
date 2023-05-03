@@ -2,6 +2,7 @@ from types import FunctionType
 
 import numpy as np
 import tqdm
+import math as m
 
 import torch
 from torch import nn
@@ -15,7 +16,6 @@ from .unet import SimpleUNet
 from .script_util import ModelType, VarType
 
 # TODO: Add confussion matrix
-# TODO: only sample once
 
 class DiffusionEvaluator():
     def __init__(
@@ -28,7 +28,9 @@ class DiffusionEvaluator():
         vae: SimpleVAE=None,
         classifier: nn.Module=None,
         batch_size: int=16,
-        n_sampling_tests: int=256
+        n_sampling_tests: int=256,
+        assert_initialization: bool=True,
+        num_classes: int=10
     ):
         """
         logger[method pointer]: pl.LightningModule.log
@@ -42,16 +44,16 @@ class DiffusionEvaluator():
         self.classifier = classifier.eval() if classifier is not None else unet
         self.batch_size = batch_size
         self.n_sampling_tests = n_sampling_tests
+        self.assert_initialization = assert_initialization
         
-        self.num_classes = self.diffusion.num_classes
-        self.top_k_accs = [torchmetrics.Accuracy(task="multiclass", num_classes=self.num_classes, top_k=k).to(vae.device)
-                           for k in range(1, self.num_classes)]
+        self.num_classes = num_classes
+        self.top_k_accs = [torchmetrics.Accuracy(task="multiclass", num_classes=num_classes, top_k=k).to(vae.device)
+                           for k in range(1, num_classes)]
         
-        assert None not in [dataloader, vae, classifier], f'not initialized {[dataloader, vae, classifier]=}'
-        
+        assert (not assert_initialization) or (None not in [dataloader, vae, classifier]), f'not initialized {[dataloader, vae, classifier]=}'
         self.is_prepared = False
 
-    def setup(self, show_progress=False):
+    def prepare(self, show_progress=False):
         """
         Calculates distribution of validation set
         """
@@ -105,18 +107,12 @@ class DiffusionEvaluator():
         # do n_tests and save accs
         if show_progress:
             print('Getting accuracy', flush=True)
-            n_tests_start = n_tests
-        while n_tests > 0:
-            batch_size = min(n_tests, self.batch_size)
-            cond = self.unet.model_type is ModelType.cond_embed
-            img, y = self.diffusion.sample(self.unet, batch_size, y=cond, show_pbar=False, to_img=False)
+        iterator = list(zip(*self.get_samples(n_tests=n_tests, show_progress=show_progress))) # list for tqdm
+        for img, y in tqdm.tqdm(iterator) if show_progress else iterator:
             img = (img.clamp(-1, 1) + 1) / 2
             y_preds = self.classifier.forward(img)
             for acc in self.top_k_accs:
                 acc(y_preds, y)
-            n_tests -= batch_size
-            if show_progress:
-                print(f'{n_tests_start-n_tests}/{n_tests_start} left: {100*(n_tests_start-n_tests)/n_tests_start:.3}%', flush=True)
         # log accs
         for k, acc in enumerate(self.top_k_accs, start=1):
             self.logger(f'top_{k}_acc', acc.compute(), on_epoch=True, prog_bar=False, logger=True)
@@ -129,25 +125,16 @@ class DiffusionEvaluator():
             return
         
         if not self.is_prepared:
-            self.setup(show_progress=show_progress)
-        
-        cond = self.unet.model_type is ModelType.cond_embed
-        sample = lambda batch_size: self.diffusion.sample(self.unet, batch_size, y=cond, show_pbar=False, to_img=False)
+            self.prepare(show_progress=show_progress)
         
         if show_progress:
             print('Computing FVAED', flush=True)
-            n_tests_start = n_tests
         # encode n_tests random samples
-        zs, ys = list(), list()
-        while n_tests > 0:
-            batch_size = min(n_tests, self.batch_size)
-            img, y = sample(batch_size)
+        xs, ys = self.get_samples(n_tests=n_tests, show_progress=show_progress)
+        zs = list()
+        for img in tqdm.tqdm(xs) if show_progress else xs:
             img = (img.clamp(-1, 1) + 1) / 2
             zs.append(self.vae.get_latent(img))
-            ys.append(y)
-            n_tests -= batch_size
-            if show_progress:
-                print(f'{n_tests_start-n_tests}/{n_tests_start} left: {100*(n_tests_start-n_tests)/n_tests_start:.3}%', flush=True)
         zs = torch.cat(zs)
         
         # compute and log FVAED
@@ -159,7 +146,7 @@ class DiffusionEvaluator():
         )
         self.logger(f'FVAED', FVAED, on_epoch=True, prog_bar=False, logger=True)
         
-        # compute and log clasewise FVAED
+        # compute and log classwise FVAED
         if self.unet.model_type is ModelType.cond_embed:
             ys = torch.cat(ys)
             if show_progress:
@@ -177,13 +164,29 @@ class DiffusionEvaluator():
                 )
                 self.logger(f'FVAED_{label}', FVAED, on_epoch=True, prog_bar=False, logger=True)
     
-    def get_samples(self, n_tests: int=None):
+    def get_samples(self, n_tests: int=None, show_progress=False) -> tuple[list[torch.Tensor], list[torch.Tensor|None]]:
         n_tests = n_tests or self.n_sampling_tests
         if self.has_sampled is False:
-            pass # do samples
-        self.has_sampled = True
+            self.has_sampled = True
+            self.xs = list[torch.Tensor]()
+            self.ys = list[torch.Tensor|None]()
+            batch_max_size = m.ceil(n_tests / self.batch_size)
+            batch_sizes = [len(a) for a in np.split(np.arange(n_tests), batch_max_size)]
+            if show_progress:
+                print('Starting sampling')
+                print('batch_sizes:', ', '.join(batch_sizes))
+            cond = self.unet.model_type is ModelType.cond_embed
+            sample = lambda batch_size: self.diffusion.sample(self.unet, batch_size, y=cond, show_pbar=False, to_img=False)
+            for batch_size in tqdm.tqdm(batch_sizes) if show_progress else batch_sizes:
+                img, y = sample(batch_size)
+                self.xs.append(img)
+                self.ys.append(y)
+        return self.xs, self.ys
     
     def do_all_tests(self, n_tests: int=None, show_progress=False):
+        """
+        Is only meant to be used once for each model e.g. when when training on epoch end
+        """
         n_tests = n_tests or self.n_sampling_tests
         self.has_sampled = False
         with torch.no_grad():
@@ -191,7 +194,7 @@ class DiffusionEvaluator():
                 print("Starting classifier acc test", flush=True)
             self.test_classifier_acc(n_tests=n_tests, show_progress=show_progress)
             if not self.is_prepared:
-                self.setup(show_progress=show_progress)
+                self.prepare(show_progress=show_progress)
             if show_progress:
                 print("Starting FVAED test", flush=True)
             self.test_FVAED(n_tests=n_tests, show_progress=show_progress)

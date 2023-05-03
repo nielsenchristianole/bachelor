@@ -46,14 +46,16 @@ def main(
     
     combined_model = DiffusionWithModel(params).to(device)
     
-    # data_module.prepare_data()
-    # data_module.setup('fit')
-    # combined_model.evaluator = DiffusionEvaluator(
-    #     logger=combined_model.log,
-    #     dataloader=data_module.val_dataloader(),
-    #     vae=SimpleVAE.load_from_checkpoint(p:=os.path.join(eval_dir, 'vae.ckpt')).to(device) if os.path.exists(p) else None,
-    #     classifier=VGG5.load_from_checkpoint(p:=os.path.join(eval_dir, 'classifier.ckpt')).to(device) if os.path.exists(p) else None,
-    # )
+    data_module.prepare_data()
+    data_module.setup('fit')
+    combined_model.evaluator = DiffusionEvaluator(
+        logger=combined_model.log,
+        dataloader=data_module.val_dataloader(),
+        vae=SimpleVAE.load_from_checkpoint(p).to(device) if os.path.exists(p:=os.path.join(eval_dir, 'vae.ckpt')) else None,
+        classifier=VGG5.load_from_checkpoint(p).to(device) if os.path.exists(p:=os.path.join(eval_dir, 'classifier.ckpt')) else None,
+        batch_size=data_module.batch_size,
+        num_classes=data_module.num_classes
+    )
 
     loss_precesion = 5
     last_callback = ModelCheckpoint(save_last=True, filename='last-{epoch}-{val_loss:.%sf}' % loss_precesion)
