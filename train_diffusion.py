@@ -87,6 +87,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_type')
     parser.add_argument('--var_type')
     parser.add_argument('--epochs', type=int)
+    parser.add_argument('--seed', type=int)
     args = parser.parse_args()
     
     # set defaults
@@ -94,7 +95,9 @@ if __name__ == '__main__':
     exp_name   = 'unnamed' if args.exp_name is None else args.exp_name
     model_type = 'cond_embed' if args.model_type is None else args.model_type
     var_type   = 'learned' if args.var_type is None else args.var_type
-    epochs     = 1 if args.epochs is None else args.epochs
+    epochs     = 100 if args.epochs is None else args.epochs
+    seed       = 42 if args.seed is None else args.seed
+
 
     params = diffusion_simple()
     params['model_type'] = ModelType[model_type]
@@ -105,7 +108,7 @@ if __name__ == '__main__':
     
     main(
         params,
-        seed=42069,
+        seed=seed,
         hardware_kwargs=get_hardware_kwargs(hardware),
         experiment_name=exp_name
     )
