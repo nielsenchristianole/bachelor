@@ -1,8 +1,11 @@
-from types import FunctionType
+from types import FunctionType, LambdaType
 
 import numpy as np
 import tqdm
 import math as m
+import os
+
+from sklearn.metrics import confusion_matrix
 
 import torch
 from torch import nn
@@ -15,7 +18,6 @@ from .vae import SimpleVAE
 from .unet import SimpleUNet
 from .script_util import ModelType, VarType
 
-# TODO: Add confussion matrix
 
 class DiffusionEvaluator():
     def __init__(
@@ -29,8 +31,9 @@ class DiffusionEvaluator():
         classifier: nn.Module=None,
         batch_size: int=16,
         n_sampling_tests: int=256,
+        num_classes: int=10,
+        save_path: LambdaType=lambda: './',
         assert_initialization: bool=True,
-        num_classes: int=10
     ):
         """
         logger[method pointer]: pl.LightningModule.log
@@ -44,14 +47,16 @@ class DiffusionEvaluator():
         self.classifier = classifier.eval() if classifier is not None else unet
         self.batch_size = batch_size
         self.n_sampling_tests = n_sampling_tests
+        self.num_classes = num_classes
+        self.save_path = save_path
         self.assert_initialization = assert_initialization
         
-        self.num_classes = num_classes
         self.top_k_accs = [torchmetrics.Accuracy(task="multiclass", num_classes=num_classes, top_k=k).to(vae.device)
                            for k in range(1, num_classes)]
         
         assert (not assert_initialization) or (None not in [dataloader, vae, classifier]), f'not initialized {[dataloader, vae, classifier]=}'
         self.is_prepared = False
+        self.has_sampled = False
 
     def prepare(self, show_progress=False):
         """
@@ -88,12 +93,17 @@ class DiffusionEvaluator():
                 self.encoded_val_set_cov_class_wise.append(torch.cov(zs_label_masked.T))
         
         self.is_prepared = True
-        self.has_sampled = False
 
-    def calculate_FVAED(self, mu1: torch.Tensor, cov1: torch.Tensor, mu2: torch.Tensor, cov2: torch.Tensor):
-        sse = torch.sum(torch.square(mu1 - mu2))
-        covmean = torch.sqrt(torch.matmul(cov1, cov2))
-        return sse + torch.trace(cov1 + cov2 - 2 * covmean)
+    def compute_and_save_conf_matrix(self, y_true: list[torch.Tensor], y_pred: list[torch.Tensor]):
+        # process preds
+        y_true = torch.cat(y_true).detach().cpu().numpy()
+        y_pred = torch.argmax(torch.cat(y_pred), dim=1).detach().cpu().numpy()
+        # get name of save file
+        save_location = lambda normalize: self.save_path() + f'conf_matrix_{normalize}.npy'
+        for normalize in (None, 'true'):
+            conf_matrix = confusion_matrix(y_true, y_pred, normalize=normalize)
+            with open(save_location(normalize or 'count'), 'wb') as f:
+                np.save(f, conf_matrix)
 
     def test_classifier_acc(self, n_tests: int, show_progress=False):
         """
@@ -108,14 +118,23 @@ class DiffusionEvaluator():
         if show_progress:
             print('Getting accuracy', flush=True)
         iterator = list(zip(*self.get_samples(n_tests=n_tests, show_progress=show_progress))) # list for tqdm
+        all_y_true, all_y_preds = list(), list()
         for img, y in tqdm.tqdm(iterator) if show_progress else iterator:
             img = (img.clamp(-1, 1) + 1) / 2
             y_preds = self.classifier.forward(img)
             for acc in self.top_k_accs:
                 acc(y_preds, y)
+            all_y_true.append(y)
+            all_y_preds.append(y_preds)
+        self.compute_and_save_conf_matrix(all_y_true, all_y_preds)
         # log accs
         for k, acc in enumerate(self.top_k_accs, start=1):
             self.logger(f'top_{k}_acc', acc.compute(), on_epoch=True, prog_bar=False, logger=True)
+
+    def calculate_FVAED(self, mu1: torch.Tensor, cov1: torch.Tensor, mu2: torch.Tensor, cov2: torch.Tensor):
+        sse = torch.sum(torch.square(mu1 - mu2))
+        covmean = torch.sqrt(torch.matmul(cov1, cov2))
+        return sse + torch.trace(cov1 + cov2 - 2 * covmean)
     
     def test_FVAED(self, n_tests: int, show_progress=False):
         """
@@ -171,14 +190,13 @@ class DiffusionEvaluator():
             self.xs = list[torch.Tensor]()
             self.ys = list[torch.Tensor|None]()
             batch_max_size = m.ceil(n_tests / self.batch_size)
-            batch_sizes = [len(a) for a in np.split(np.arange(n_tests), batch_max_size)]
+            y_labels = np.split(np.arange(n_tests) % self.num_classes, batch_max_size)
             if show_progress:
                 print('Starting sampling')
-                print('batch_sizes:', ', '.join(batch_sizes))
-            cond = self.unet.model_type is ModelType.cond_embed
-            sample = lambda batch_size: self.diffusion.sample(self.unet, batch_size, y=cond, show_pbar=False, to_img=False)
-            for batch_size in tqdm.tqdm(batch_sizes) if show_progress else batch_sizes:
-                img, y = sample(batch_size)
+                print('batch_sizes:', ', '.join([str(len(a)) for a in y_labels]))
+            for y_label in tqdm.tqdm(y_labels) if show_progress else y_labels:
+                y_label = y_label if self.unet.model_type is ModelType.cond_embed else None
+                img, y = self.diffusion.sample(self.unet, len(y_label), y=y_label, show_pbar=False, to_img=False)
                 self.xs.append(img)
                 self.ys.append(y)
         return self.xs, self.ys

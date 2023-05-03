@@ -45,17 +45,6 @@ def main(
     params['diffusion_kwargs']['color_channels'] = params['unet_kwargs']['out_channels'] = params['unet_kwargs']['in_channels'] = channels
     
     combined_model = DiffusionWithModel(params).to(device)
-    
-    data_module.prepare_data()
-    data_module.setup('fit')
-    combined_model.evaluator = DiffusionEvaluator(
-        logger=combined_model.log,
-        dataloader=data_module.val_dataloader(),
-        vae=SimpleVAE.load_from_checkpoint(p).to(device) if os.path.exists(p:=os.path.join(eval_dir, 'vae.ckpt')) else None,
-        classifier=VGG5.load_from_checkpoint(p).to(device) if os.path.exists(p:=os.path.join(eval_dir, 'classifier.ckpt')) else None,
-        batch_size=data_module.batch_size,
-        num_classes=data_module.num_classes
-    )
 
     loss_precesion = 5
     last_callback = ModelCheckpoint(save_last=True, filename='last-{epoch}-{val_loss:.%sf}' % loss_precesion)
@@ -70,6 +59,18 @@ def main(
         logger=CSVLogger(models_dir, flush_logs_every_n_steps=100),
         log_every_n_steps=10,
         **hardware_kwargs
+    )
+    
+    data_module.prepare_data()
+    data_module.setup('fit')
+    combined_model.evaluator = DiffusionEvaluator(
+        logger=combined_model.log,
+        dataloader=data_module.val_dataloader(),
+        vae=SimpleVAE.load_from_checkpoint(p).to(device) if os.path.exists(p:=os.path.join(eval_dir, 'vae.ckpt')) else None,
+        classifier=VGG5.load_from_checkpoint(p).to(device) if os.path.exists(p:=os.path.join(eval_dir, 'classifier.ckpt')) else None,
+        batch_size=data_module.batch_size,
+        num_classes=data_module.num_classes,
+        save_path=lambda: os.path.join(models_dir, 'lightning_logs', f'version_{trainer.logger.version}', f'epoch_{trainer.current_epoch}')
     )
     
     trainer.fit(

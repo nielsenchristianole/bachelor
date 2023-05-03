@@ -16,3 +16,4 @@ models/
 *.cpython-310.pyc
 *.cpython-39.pyc
 diffusion/__pycache__
+*.npy

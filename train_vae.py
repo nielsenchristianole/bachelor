@@ -15,6 +15,7 @@ def main(
     epochs: int,
     seed: int,
     *,
+    latens_dim: int=16,
     hardware_kwargs: dict,
 ):
     work_dir = hardware_kwargs.pop('work_dir')
@@ -32,7 +33,7 @@ def main(
         normalize=False
     )
     
-    vea = SimpleVAE(data_module.dims, latens_dim=2).to(device)
+    vea = SimpleVAE(data_module.dims, latens_dim=latens_dim).to(device)
 
     loss_precesion = 3
     loss_callback = ModelCheckpoint(monitor="val_loss", mode='min', save_top_k=3, filename='loss-{epoch}-{val_loss:.%sf}' % loss_precesion)
@@ -59,11 +60,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     hardware = 'local' if args.hardware is None else args.hardware
-    seed = 43
-    epochs = 20
+    seed = 42
+    epochs = 40
     
     main(
         epochs,
         seed,
+        latens_dim=16,
         hardware_kwargs=get_vae_mnist_kwargs(hardware)
     )

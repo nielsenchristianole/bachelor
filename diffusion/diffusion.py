@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 import numpy as np
 import tqdm
 
@@ -8,6 +9,8 @@ from .script_util import ModelType, VarType
 from .vgg5 import VGG5
 from .unet import SimpleUNet
 
+# annaying workaround
+Sequence.register(np.ndarray)
 
 class Diffusion:
     def __init__(
@@ -170,13 +173,13 @@ class Diffusion:
         """
         if isinstance(y, bool):
             y = self.sample_classes(n_samples) if y else None # set to None if y==False
-        elif isinstance(y, torch.Tensor):
-            assert y.shape(0) == n_samples, \
-                f"{y.shape=} not campatible with {n_samples=}"
-        elif y is None:
+        elif (y is None) or isinstance(y, torch.Tensor):
             pass
+        elif isinstance(y, Sequence):
+            y = torch.Tensor(y).to(self.device).long()
         else:
             raise NotImplementedError
+        assert y.shape[0] == n_samples, f"{y.shape=} not campatible with {n_samples=}"
         samples = self.p_sample_loop(
             model,
             t_lower=0,

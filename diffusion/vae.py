@@ -25,8 +25,7 @@ class SimpleVAE(pl.LightningModule):
         global_pooling: nn.Module=nn.MaxPool2d,
         lr=1e-4,
         training_normelization=True,
-        beta=1.,
-        use_simple=False
+        beta=1.
     ):
         super().__init__()
         
@@ -38,7 +37,6 @@ class SimpleVAE(pl.LightningModule):
         self.lr = lr
         self.training_normelization = training_normelization
         self.beta = beta
-        self.use_simple = use_simple
         
         prod_spacial = np.prod(input_dims)
         
@@ -47,69 +45,45 @@ class SimpleVAE(pl.LightningModule):
         
         self.normelize = transforms.Normalize((0.,), (1.,)) if training_normelization else nn.Identity()
         
-        if use_simple:
-            # self.simple_encoder = nn.Sequential(
-            #     nn.Linear(in_features=prod_spacial, out_features=512),
-            #     nn.ReLU(),
-            #     nn.Linear(in_features=512, out_features=256),
-            #     nn.ReLU(),
-            #     nn.Linear(in_features=256, out_features=128),
-            #     nn.ReLU(),
-            #     nn.Linear(in_features=128, out_features=2*latens_dim)
-            # )
-            # self.simple_decoder = nn.Sequential(
-            #     nn.Linear(in_features=latens_dim, out_features=128),
-            #     nn.ReLU(),
-            #     nn.Linear(in_features=128, out_features=256),
-            #     nn.ReLU(),
-            #     nn.Linear(in_features=256, out_features=512),
-            #     nn.ReLU(),
-            #     nn.Linear(in_features=512, out_features=prod_spacial)
-            # )
-            pass
-        else:
-            self.encoder_cnn = nn.Sequential(
-                nn.Conv2d(in_channels, 16, (3,3), padding='same'),
-                nn.ReLU(),
-                nn.Conv2d(16, 16, (3,3), padding='same'),
-                nn.MaxPool2d((2,2)),
-                nn.InstanceNorm2d(16),
-                nn.ReLU(),
-                nn.Conv2d(16, 32, (3,3), padding='same'),
-                nn.ReLU(),
-                nn.Conv2d(32, 32, (3,3), padding='same'),
-                nn.MaxPool2d((2,2)),
-                nn.InstanceNorm2d(32),
-                nn.ReLU(),
-                nn.Conv2d(32, 64, (3,3), padding='same'),
-                nn.ReLU(),
-                nn.Conv2d(64, 64, (3,3), padding='same'),
-                global_pooling(global_pool_kernal_dim) # global max pooling
-            )
-            self.encoder_dense = nn.Sequential(
-                nn.Dropout(dropout),
-                nn.Linear(64, 64),
-                nn.Dropout(dropout),
-                nn.ReLU(),
-                nn.Linear(64, 2 * latens_dim)
-            )
-            self.decoder = nn.Sequential(
-                nn.Linear(latens_dim, 128),
-                nn.Dropout(dropout),
-                nn.ReLU(),
-                nn.Linear(128, 256),
-                nn.Dropout(dropout),
-                nn.ReLU(),
-                nn.Linear(256, 512),
-                nn.Dropout(dropout),
-                nn.ReLU(),
-                nn.Linear(512, prod_spacial),
-            )
+        self.encoder_cnn = nn.Sequential(
+            nn.Conv2d(in_channels, 32, (3,3), padding='same'),
+            nn.ReLU(),
+            nn.Conv2d(32, 32, (3,3), padding='same'),
+            nn.MaxPool2d((2,2)),
+            nn.InstanceNorm2d(32),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, (3,3), padding='same'),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, (3,3), padding='same'),
+            nn.MaxPool2d((2,2)),
+            nn.InstanceNorm2d(64),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, (3,3), padding='same'),
+            nn.ReLU(),
+            nn.Conv2d(128, 128, (3,3), padding='same'),
+            global_pooling(global_pool_kernal_dim) # global max pooling
+        )
+        self.encoder_dense = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(128, 128),
+            nn.Dropout(dropout),
+            nn.ReLU(),
+            nn.Linear(128, 2 * latens_dim)
+        )
+        self.decoder = nn.Sequential(
+            nn.Linear(latens_dim, 128),
+            nn.Dropout(dropout),
+            nn.ReLU(),
+            nn.Linear(128, 256),
+            nn.Dropout(dropout),
+            nn.ReLU(),
+            nn.Linear(256, 512),
+            nn.Dropout(dropout),
+            nn.ReLU(),
+            nn.Linear(512, prod_spacial),
+        )
         
     def encode(self, x: torch.Tensor) -> torch.Tensor:
-        if self.use_simple:
-            x = torch.flatten(x, 1)
-            return(self.simple_encoder(x))
         x = self.encoder_cnn(x)
         x = torch.flatten(x, 1)
         return self.encoder_dense(x)
@@ -128,10 +102,7 @@ class SimpleVAE(pl.LightningModule):
         return mu + std * eps
 
     def decode(self, z: torch.Tensor) -> torch.Tensor:
-        if self.use_simple:
-            x = self.simple_decoder(z)
-        else:
-            x = self.decoder(z)
+        x = self.decoder(z)
         x = x.view(-1, *self.input_dims)
         return x
 
@@ -146,7 +117,7 @@ class SimpleVAE(pl.LightningModule):
         x, y = batch
         h = self.normelize(x)
         
-        h = self.encode(h)
+        h = self.encode(h) # we want the decoder to take normelized values but x in [0,1] for the loss
         mu, log_std = self.split_mean_log_std(h)
         z = self.reparameterize(mu, log_std)
         
