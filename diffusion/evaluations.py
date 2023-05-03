@@ -240,3 +240,5 @@ class DiffusionEvaluator():
             if show_progress:
                 print("Starting FVAED test", flush=True)
             self.test_FVAED(n_tests=n_tests, show_progress=show_progress)
+        self.xs = None
+        self.ys = None
