@@ -115,13 +115,17 @@ class MNISTDataModule(pl.LightningDataModule):
         data_dir,
         batch_size,
         num_workers=None,
-        normalize=True
+        normalize=True,
+        train_val_split=[55000, 5000],
+        data_split_seed=42
     ):
         super().__init__()
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.num_workers = os.cpu_count() if num_workers is None else num_workers
         self.normalize = normalize
+        self.train_val_split = train_val_split
+        self.data_split_seed = data_split_seed
         
         self.normelization = transforms.Normalize((0.,), (1.,)) if normalize else nn.Identity() # transforms.Normalize((0.1307,), (0.3081,)),
         
@@ -144,7 +148,7 @@ class MNISTDataModule(pl.LightningDataModule):
         # Assign train/val datasets for use in dataloaders
         if stage == "fit" or stage is None:
             mnist_full = MNIST(self.data_dir, train=True, transform=self.transform)
-            self.mnist_train, self.mnist_val = random_split(mnist_full, [55000, 5000])
+            self.mnist_train, self.mnist_val = random_split(mnist_full, self.train_val_split, generator=torch.Generator().manual_seed(self.data_split_seed))
 
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:
