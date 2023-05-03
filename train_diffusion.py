@@ -109,6 +109,9 @@ if __name__ == '__main__':
     if epochs is not None:
         params['epochs'] = epochs
     
+    if hardware == 'hpc':
+        torch.set_float32_matmul_precision('medium')
+    
     main(
         params,
         seed=seed,

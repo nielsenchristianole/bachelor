@@ -39,7 +39,7 @@ def get_hardware_kwargs(hardware: str):
             strategy='ddp',
             devices=torch.cuda.device_count(),
             num_nodes=1,
-            num_workers=min(16, os.cpu_count()),
+            num_workers=1,
             device_name='cuda',
             work_dir='./'
         )
