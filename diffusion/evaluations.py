@@ -30,7 +30,7 @@ class DiffusionEvaluator():
         vae: SimpleVAE=None,
         classifier: nn.Module=None,
         batch_size: int=16,
-        n_sampling_tests: int=1024,
+        n_sampling_tests: int=512,
         num_classes: int=10,
         save_path: LambdaType=lambda: './',
         assert_initialization: bool=True,
