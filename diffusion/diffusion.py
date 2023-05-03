@@ -179,7 +179,7 @@ class Diffusion:
             y = torch.Tensor(y).to(self.device).long()
         else:
             raise NotImplementedError
-        assert y.shape[0] == n_samples, f"{y.shape=} not campatible with {n_samples=}"
+        assert (y is None) or (y.shape[0] == n_samples), f"{y.shape=} not campatible with {n_samples=}"
         samples = self.p_sample_loop(
             model,
             t_lower=0,

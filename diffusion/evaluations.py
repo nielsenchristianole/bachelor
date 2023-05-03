@@ -36,8 +36,15 @@ class DiffusionEvaluator():
         assert_initialization: bool=True,
     ):
         """
-        logger[method pointer]: pl.LightningModule.log
+        logger[method pointer]: e.g. pl.LightningModule.log
+        dataloader: used for testing against when calculating FID
         classifier: a classifier to test sample quality
+        vae: vae for replacing inception classifier in FID
+        batch_size: working batch size, purely performance based
+        n_sampling_tests: how many samples to compute when calculating metrics
+        num_classes: number of classes
+        save_path: where to save extra information, e.g. conf matrix
+        assert_initialization: test of initialized with all needed items
         """
         self.logger = logger
         self.dataloader = dataloader
@@ -60,7 +67,7 @@ class DiffusionEvaluator():
 
     def prepare(self, show_progress=False):
         """
-        Calculates distribution of validation set
+        Calculates and store computations only needed once for multiple tests
         """
         if show_progress:
             print("Preparing evaluator", flush=True)
@@ -95,6 +102,9 @@ class DiffusionEvaluator():
         self.is_prepared = True
 
     def compute_and_save_conf_matrix(self, y_true: list[torch.Tensor], y_pred: list[torch.Tensor]):
+        """
+        takes a list of predictions (logits or probs) and true labels and saves conf matrix to self.save_path
+        """
         # process preds
         y_true = torch.cat(y_true).detach().cpu().numpy()
         y_pred = torch.argmax(torch.cat(y_pred), dim=1).detach().cpu().numpy()
@@ -107,7 +117,7 @@ class DiffusionEvaluator():
 
     def test_classifier_acc(self, n_tests: int, show_progress=False):
         """
-        uses the classifier to test sample quality of DDPM
+        classifies the generated images and store accuracies and conf matrix
         """
         if (self.unet.model_type is not ModelType.cond_embed) or (self.classifier is None) or (self.diffusion is None) or (self.unet is None):
             return
@@ -136,9 +146,10 @@ class DiffusionEvaluator():
         covmean = torch.sqrt(torch.matmul(cov1, cov2))
         return sse + torch.trace(cov1 + cov2 - 2 * covmean)
     
-    def test_FVAED(self, n_tests: int, show_progress=False):
+    def test_FVAED(self, n_tests: int=None, show_progress=False):
         """
         Like FID but uses vae insted of inception_v3
+        Does calculation for whole data distribution and individual labels
         """
         if (self.diffusion is None) or (self.unet is  None) or (self.vae is None):
             return
@@ -184,6 +195,9 @@ class DiffusionEvaluator():
                 self.logger(f'FVAED_{label}', FVAED, on_epoch=True, prog_bar=False, logger=True)
     
     def get_samples(self, n_tests: int=None, show_progress=False) -> tuple[list[torch.Tensor], list[torch.Tensor|None]]:
+        """
+        samples once and stores for any computation
+        """
         n_tests = n_tests or self.n_sampling_tests
         if self.has_sampled is False:
             self.has_sampled = True
@@ -195,15 +209,25 @@ class DiffusionEvaluator():
                 print('Starting sampling')
                 print('batch_sizes:', ', '.join([str(len(a)) for a in y_labels]))
             for y_label in tqdm.tqdm(y_labels) if show_progress else y_labels:
+                batch_size = len(y_label)
                 y_label = y_label if self.unet.model_type is ModelType.cond_embed else None
-                img, y = self.diffusion.sample(self.unet, len(y_label), y=y_label, show_pbar=False, to_img=False)
+                img, y = self.diffusion.sample(self.unet, batch_size, y=y_label, show_pbar=False, to_img=False)
                 self.xs.append(img)
                 self.ys.append(y)
         return self.xs, self.ys
     
+    def set_samples(self, xs: list[torch.Tensor], ys: list[torch.Tensor]|None=None):
+        """
+        This function is to set the samples used for testing, e.g. when calculating FVEAD on VAE reconstructions
+        """
+        self.has_sampled = True
+        self.xs = xs
+        self.ys = ys
+    
     def do_all_tests(self, n_tests: int=None, show_progress=False):
         """
         Is only meant to be used once for each model e.g. when when training on epoch end
+        Reset samples and does all above tests
         """
         n_tests = n_tests or self.n_sampling_tests
         self.has_sampled = False

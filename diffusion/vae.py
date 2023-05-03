@@ -22,14 +22,14 @@ class SimpleVAE(pl.LightningModule):
         input_dims=(1,28,28),
         latens_dim=2,
         dropout=0.,
-        global_pooling: nn.Module=nn.MaxPool2d,
+        pooling: nn.Module=nn.MaxPool2d,
         lr=1e-4,
         training_normelization=True,
         beta=1.
     ):
         super().__init__()
         
-        self.save_hyperparameters(ignore=[global_pooling])
+        self.save_hyperparameters(ignore=[pooling])
         
         self.input_dims = input_dims
         self.latens_dim = latens_dim
@@ -49,19 +49,19 @@ class SimpleVAE(pl.LightningModule):
             nn.Conv2d(in_channels, 32, (3,3), padding='same'),
             nn.ReLU(),
             nn.Conv2d(32, 32, (3,3), padding='same'),
-            nn.MaxPool2d((2,2)),
+            pooling((2,2)),
             nn.InstanceNorm2d(32),
             nn.ReLU(),
             nn.Conv2d(32, 64, (3,3), padding='same'),
             nn.ReLU(),
             nn.Conv2d(64, 64, (3,3), padding='same'),
-            nn.MaxPool2d((2,2)),
+            pooling((2,2)),
             nn.InstanceNorm2d(64),
             nn.ReLU(),
             nn.Conv2d(64, 128, (3,3), padding='same'),
             nn.ReLU(),
             nn.Conv2d(128, 128, (3,3), padding='same'),
-            global_pooling(global_pool_kernal_dim) # global max pooling
+            pooling(global_pool_kernal_dim) # global max pooling
         )
         self.encoder_dense = nn.Sequential(
             nn.Dropout(dropout),
@@ -101,6 +101,14 @@ class SimpleVAE(pl.LightningModule):
         eps = torch.randn_like(std)
         return mu + std * eps
 
+    def sample_prior(self, n_samples: int):
+        out_dims = (n_samples, self.latens_dim)
+        mu = torch.zeros(out_dims, device=self.device)
+        log_std = torch.zeros(out_dims, device=self.device)
+        z = self.reparameterize(mu, log_std)
+        x = self.decode(z)
+        return x
+        
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         x = self.decoder(z)
         x = x.view(-1, *self.input_dims)
