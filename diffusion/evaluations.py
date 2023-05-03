@@ -242,3 +242,4 @@ class DiffusionEvaluator():
             self.test_FVAED(n_tests=n_tests, show_progress=show_progress)
         self.xs = None
         self.ys = None
+        torch.cuda.empty_cache()
