@@ -89,7 +89,7 @@ class SimpleVAE(pl.LightningModule):
         return self.encoder_dense(x)
 
     def split_mean_log_std(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        return tuple(torch.split(x, 2, 1))
+        return tuple(torch.split(x, self.latens_dim, 1))
     
     def get_latent(self, x: torch.Tensor):
         z = self.encode(x)
