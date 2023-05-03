@@ -144,7 +144,7 @@ class DiffusionEvaluator():
     def calculate_FVAED(self, mu1: torch.Tensor, cov1: torch.Tensor, mu2: torch.Tensor, cov2: torch.Tensor):
         sse = torch.sum(torch.square(mu1 - mu2))
         covmean = torch.sqrt(torch.matmul(cov1, cov2))
-        return sse + torch.trace(cov1 + cov2 - 2 * covmean)
+        return sse + torch.trace(cov1 + cov2 - 2 * torch.sqrt(covmean))
     
     def test_FVAED(self, n_tests: int=None, show_progress=False):
         """
