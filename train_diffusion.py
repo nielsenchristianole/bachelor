@@ -1,5 +1,6 @@
 import os
 import argparse
+from pathlib import Path
 
 import torch
 from torch import nn, utils
@@ -52,8 +53,9 @@ def main(
     loss_callback = ModelCheckpoint(monitor="val_loss", mode='min', save_top_k=3, filename='loss-{epoch}-{val_loss:.%sf}' % loss_precesion)
     callbacks=[last_callback, epoch_callback, loss_callback]
     
-    if not os.path.exists(p:=os.path.join(models_dir, 'lightning_logs')):
-        os.mkdir(p)
+    # if not os.path.exists(p:=os.path.join(models_dir, 'lightning_logs')):
+    #     os.mkdir(p)
+    Path(os.path.join(models_dir, 'lightning_logs')).mkdir(parents=True, exist_ok=True)
     
     trainer = pl.Trainer(
         default_root_dir=models_dir,
