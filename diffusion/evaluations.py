@@ -6,6 +6,7 @@ import math as m
 import os
 
 from sklearn.metrics import confusion_matrix
+from scipy import linalg
 
 import torch
 from torch import nn
@@ -141,10 +142,31 @@ class DiffusionEvaluator():
         for k, acc in enumerate(self.top_k_accs, start=1):
             self.logger(f'top_{k}_acc', acc.compute(), on_epoch=True, prog_bar=False, logger=True)
 
-    def calculate_FVAED(self, mu1: torch.Tensor, cov1: torch.Tensor, mu2: torch.Tensor, cov2: torch.Tensor):
-        sse = torch.sum(torch.square(mu1 - mu2))
-        covmean = torch.sqrt(torch.matmul(cov1, cov2))
-        return sse + torch.trace(cov1 + cov2 - 2 * torch.sqrt(covmean))
+    def calculate_FVAED(self, *args, eps=1e-6):
+        """
+        inputs - mu1: torch.Tensor, cov1: torch.Tensor, mu2: torch.Tensor, cov2: torch.Tensor
+        Code inspired from https://github.com/mseitzer/pytorch-fid
+        """
+        to_numpy = lambda tensor: tensor.detach().cpu().numpy()
+        mu1, sigma1, mu2, sigma2 = list(map(to_numpy, args))
+        
+        # Product might be almost singular
+        diff = mu1 - mu2
+        covmean, _ = linalg.sqrtm(sigma1.dot(sigma2), disp=False)
+        if not np.isfinite(covmean).all():
+            offset = np.eye(sigma1.shape[0]) * eps
+            covmean = linalg.sqrtm((sigma1 + offset).dot(sigma2 + offset))
+        
+        # Numerical error might give slight imaginary component
+        if np.iscomplexobj(covmean):
+            if not np.allclose(np.diagonal(covmean).imag, 0, atol=1e-3):
+                m = np.max(np.abs(covmean.imag))
+                raise ValueError('Imaginary component {}'.format(m))
+            covmean = covmean.real
+
+        tr_covmean = np.trace(covmean)
+
+        return (diff.dot(diff) + np.trace(sigma1) + np.trace(sigma2) - 2 * tr_covmean)
     
     def test_FVAED(self, n_tests: int=None, show_progress=False):
         """

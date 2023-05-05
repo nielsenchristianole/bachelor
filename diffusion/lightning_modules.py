@@ -46,9 +46,9 @@ class DiffusionWithModel(pl.LightningModule):
         self.diffusion = Diffusion(**params.get('diffusion_kwargs'))
         self.params = params
         self.MSEloss = nn.MSELoss()
-        
+    
         self.evaluator = evaluator
-        
+    
     def forward(self, x):
         return self.model.forward(x)
     
