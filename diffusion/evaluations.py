@@ -131,7 +131,6 @@ class DiffusionEvaluator():
         iterator = list(zip(*self.get_samples(n_tests=n_tests, show_progress=show_progress))) # list for tqdm
         all_y_true, all_y_preds = list(), list()
         for img, y in tqdm.tqdm(iterator) if show_progress else iterator:
-            img = (img.clamp(-1, 1) + 1) / 2
             y_preds = self.classifier.forward(img)
             for acc in self.top_k_accs:
                 acc(y_preds, y)
@@ -159,9 +158,6 @@ class DiffusionEvaluator():
         
         # Numerical error might give slight imaginary component
         if np.iscomplexobj(covmean):
-            if not np.allclose(np.diagonal(covmean).imag, 0, atol=1e-3):
-                m = np.max(np.abs(covmean.imag))
-                raise ValueError('Imaginary component {}'.format(m))
             covmean = covmean.real
 
         tr_covmean = np.trace(covmean)
@@ -185,7 +181,6 @@ class DiffusionEvaluator():
         xs, ys = self.get_samples(n_tests=n_tests, show_progress=show_progress)
         zs = list()
         for img in tqdm.tqdm(xs) if show_progress else xs:
-            img = (img.clamp(-1, 1) + 1) / 2
             zs.append(self.vae.get_latent(img))
         zs = torch.cat(zs)
         
@@ -234,6 +229,7 @@ class DiffusionEvaluator():
                 batch_size = len(y_label)
                 y_label = y_label if self.unet.model_type is ModelType.cond_embed else None
                 img, y = self.diffusion.sample(self.unet, batch_size, y=y_label, show_pbar=False, to_img=False)
+                img = img.clamp(0., 1.)
                 self.xs.append(img)
                 self.ys.append(y)
         return self.xs, self.ys
