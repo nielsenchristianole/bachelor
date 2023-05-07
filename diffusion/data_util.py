@@ -99,10 +99,11 @@ def show_out_images(x: torch.Tensor, y: torch.Tensor=None, fig=None, ax_kwargs={
         imgs = np.moveaxis(x, 1, -1)
     else:
         raise NotImplementedError
-    if fig == None:
-        fig = plt.figure(**fig_kwargs)
     
     num_side_img = math.ceil(math.sqrt(n_batches))
+    if fig == None:
+        fig_kwargs['figsize'] = fig_kwargs.get('figsize', (2*num_side_img, 2*num_side_img))
+        fig = plt.figure(**fig_kwargs)
     for i, (img, label) in enumerate(zip(imgs, y), start=1):
         ax = fig.add_subplot(num_side_img, num_side_img, i)
         img_plot(img, label, ax, **ax_kwargs)
