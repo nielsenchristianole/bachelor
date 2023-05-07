@@ -397,7 +397,7 @@ class Diffusion:
         """
         Takes a tensor and converts it to rgb
         """
-        x = (x.clamp(-1, 1) + 1) / 2
+        x = x.clamp(0., 1.)
         x = (x * 255).type(torch.uint8)
         return x
     
