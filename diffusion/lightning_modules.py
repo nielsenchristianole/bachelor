@@ -66,7 +66,7 @@ class DiffusionWithModel(pl.LightningModule):
             err, v = self.diffusion._split_model_out(model_out, x_t.shape)
             loss_simple = self.MSEloss(err, noise)
             # variational lower bound
-            loss_vlb = self.diffusion.calculate_loss_vlb(err.detach(), v, x_0, x_t, t) # should not use D_kl to train mean prediction
+            loss_vlb = self.diffusion.calculate_loss_vlb(err, v, x_0, x_t, t) # should not use D_kl to train mean prediction
             (vlb_logger is None) or vlb_logger(loss_vlb) # log if logger is provided
             loss = loss_simple + self.lambda_vlb_weight * loss_vlb
         else:

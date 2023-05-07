@@ -297,7 +297,7 @@ class SimpleUNet(nn.Module):
         emb = self.timestep_embedding(timesteps)
         emb = self.time_embed(emb)
 
-        if self.model_type is ModelType.cond_embed and y is not None:
+        if (self.model_type is ModelType.cond_embed) and (y is not None):
             assert y.shape == (x.shape[0],), "Num target classes not equal bach size"
             emb = emb + self.label_emb(y)
 
