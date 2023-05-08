@@ -93,7 +93,7 @@ if __name__ == '__main__':
     parser.add_argument('--var_type')
     parser.add_argument('--epochs', type=int)
     parser.add_argument('--seed', type=int)
-    parser.add_argument('--lambda_vlb_weight', type=int)
+    parser.add_argument('--lambda_vlb_weight', type=float)
     args = parser.parse_args()
     
     
