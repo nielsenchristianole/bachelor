@@ -191,25 +191,17 @@ class Diffusion:
             )
         return samples, y
 
-    def p_guided_mean_std(
+    def get_guiding_gradient(
         self,
-        model: SimpleUNet,
         classifier: VGG5,
-        x_t: torch.Tensor,
         x_0_reconstructed: torch.Tensor,
         original_latent: torch.Tensor,
         t: torch.Tensor,
         y_target: torch.Tensor,
-        *,
-        lambda_p: float,
         lambda_c: float,
-        vgg_block: int
+        lambda_p: float,
+        vgg_block: int,
     ):
-        """
-        Algo 1 from _Diffusion Models Beat GANs on Image Synthesis_
-        """
-        assert not model.training, "UNet should not be in training when doing guided diffusion"
-        assert not classifier.training, "Classifier should not be in training when doing guided diffusion"
         # cloning reconstructed image to get gradient
         x_0_clone = torch.clone(x_0_reconstructed)
         x_0_clone.requires_grad_(True)
@@ -224,9 +216,59 @@ class Diffusion:
         
         # combined loss and getting grad
         reconstructed_loss = lambda_c * class_loss + lambda_p * perc_loss
+        
         noisy_loss = self._get(self.recip_sqrt_alpha, t, reconstructed_loss.shape) * reconstructed_loss # self.recip_sqrt_alpha[t.cpu().numpy()] * reconstructed_loss
         noisy_loss.mean().backward()
         gradient = x_0_clone.grad.detach()
+        return gradient
+
+    def p_guided_mean_std(
+        self,
+        model: SimpleUNet,
+        classifier: VGG5,
+        x_t: torch.Tensor,
+        x_0_reconstructed: torch.Tensor|list[torch.Tensor],
+        original_latent: torch.Tensor,
+        t: torch.Tensor,
+        y_target: torch.Tensor,
+        *,
+        lambda_p: float,
+        lambda_c: float,
+        vgg_block: int
+    ):
+        """
+        Algo 1 from _Diffusion Models Beat GANs on Image Synthesis_
+        """
+        assert not model.training, "UNet should not be in training when doing guided diffusion"
+        assert not classifier.training, "Classifier should not be in training when doing guided diffusion"
+        
+        if isinstance(x_0_reconstructed, list):
+            gradients = list()
+            for tmp_reconstructed in x_0_reconstructed:
+                gradients.append(
+                    self.get_guiding_gradient(
+                        classifier=classifier,
+                        x_0_reconstructed=tmp_reconstructed,
+                        original_latent=original_latent,
+                        t=t,
+                        y_target=y_target,
+                        lambda_c=lambda_c,
+                        lambda_p=lambda_p,
+                        vgg_block=vgg_block
+                    )
+                )
+            gradient = torch.cat(gradients).mean(dim=0)
+        else:
+            gradient = self.get_guiding_gradient(
+                classifier=classifier,
+                x_0_reconstructed=x_0_reconstructed,
+                original_latent=original_latent,
+                t=t,
+                y_target=y_target,
+                lambda_c=lambda_c,
+                lambda_p=lambda_p,
+                vgg_block=vgg_block
+            )
         
         with torch.no_grad():
             model_out = model(x_t, t)
@@ -256,7 +298,7 @@ class Diffusion:
         model: SimpleUNet,
         classifier: VGG5,
         x_t: torch.Tensor,
-        x_0_reconstructed: torch.Tensor,
+        x_0_reconstructed: torch.Tensor|list[torch.Tensor],
         original_latent: torch.Tensor,
         t: torch.Tensor,
         y_target: torch.Tensor,
@@ -282,7 +324,6 @@ class Diffusion:
         )
         noise = torch.randn_like(x_t, device=self.device) * (t > 0)[:, None, None, None]
         return mean + std * noise
-        
 
     def guided_counterfactual(
         self,
@@ -292,6 +333,7 @@ class Diffusion:
         y: int,
         tau: int,
         *,
+        n_reconstruct_samples: int=1,
         lambda_p: float,
         lambda_c: float,
         vgg_block: int,
@@ -325,6 +367,12 @@ class Diffusion:
         for i in iterator:
             t = torch.tensor((i,), device=self.device)
             x_0_reconstructed = self.p_sample_loop(model, t_lower=0, t_upper=i, x=x_t)
+            if n_reconstruct_samples > 1:
+                x_0_reconstructed = [x_0_reconstructed]
+                for _ in range(n_reconstruct_samples-1):
+                    x_0_reconstructed.append(
+                        self.p_sample_loop(model, t_lower=0, t_upper=i, x=x_t)
+                    )
             x_t = self.p_guided_sample(model, classifier, x_t, x_0_reconstructed, original_latent, t, y, lambda_p=lambda_p, lambda_c=lambda_c, vgg_block=vgg_block)
         classification_logits = classifier.forward(x_t)
         
