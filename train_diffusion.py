@@ -93,23 +93,23 @@ if __name__ == '__main__':
     parser.add_argument('--var_type')
     parser.add_argument('--epochs', type=int)
     parser.add_argument('--seed', type=int)
+    parser.add_argument('--lambda_vlb_weight', type=int)
     args = parser.parse_args()
+    
     
     # set defaults
     hardware   = 'local' if args.hardware is None else args.hardware
     exp_name   = 'unnamed' if args.exp_name is None else args.exp_name
     model_type = 'cond_embed' if args.model_type is None else args.model_type
     var_type   = 'learned' if args.var_type is None else args.var_type
-    epochs     = 100 if args.epochs is None else args.epochs
     seed       = 42 if args.seed is None else args.seed
 
-
+    # get update and override params
     params = diffusion_simple()
     params['model_type'] = ModelType[model_type]
     params['var_type'] = VarType[var_type]
-    
-    if epochs is not None:
-        params['epochs'] = epochs
+    params['lambda_vlb_weight'] = params['lambda_vlb_weight'] if args.lambda_vlb_weight is None else args.lambda_vlb_weight
+    params['epochs'] = params['epochs'] if args.epochs is None else args.epochs
     
     if hardware == 'hpc':
         torch.set_float32_matmul_precision('medium')

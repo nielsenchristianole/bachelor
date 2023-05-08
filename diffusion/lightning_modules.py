@@ -37,7 +37,7 @@ class DiffusionWithModel(pl.LightningModule):
         
         self.model_type = params.get('model_type')
         self.var_type = params.get('var_type')
-        self.lambda_vlb_weight = params.get('lambda_vlb_weight', 0.001)
+        self.lambda_vlb_weight = params.get('lambda_vlb_weight')
         self.model = SimpleUNet(
             model_type=self.model_type,
             var_type=self.var_type,
@@ -66,9 +66,9 @@ class DiffusionWithModel(pl.LightningModule):
             err, v = self.diffusion._split_model_out(model_out, x_t.shape)
             loss_simple = self.MSEloss(err, noise)
             # variational lower bound
-            loss_vlb = self.diffusion.calculate_loss_vlb(err, v, x_0, x_t, t) # should not use D_kl to train mean prediction
+            loss_vlb = self.lambda_vlb_weight * self.diffusion.calculate_loss_vlb(err.detach(), v, x_0, x_t, t) # should not use D_kl to train mean prediction
             (vlb_logger is None) or vlb_logger(loss_vlb) # log if logger is provided
-            loss = loss_simple + self.lambda_vlb_weight * loss_vlb
+            loss = loss_simple + loss_vlb
         else:
             raise NotImplementedError(f'Unknown {self.var_type=}')
         return loss
@@ -113,7 +113,7 @@ class MNISTDataModule(pl.LightningDataModule):
     def __init__(
         self,
         data_dir,
-        batch_size,
+        batch_size=None,
         num_workers=None,
         normalize=True,
         train_val_split=[55000, 5000],
@@ -167,13 +167,13 @@ class MNISTDataModule(pl.LightningDataModule):
 
     def setup(self, stage=None):
         # Assign train/val datasets for use in dataloaders
-        if stage == "fit" or stage is None:
+        if stage == 'fit' or stage is None:
             mnist_full = MNIST(self.data_dir, train=True, transform=self.transform)
             mnist_train, mnist_val = random_split(mnist_full, self.train_val_split, generator=torch.Generator().manual_seed(self.data_split_seed))
             self.mnist_train = self.remove_subset_complement(mnist_train)
             self.mnist_val = self.remove_subset_complement(mnist_val)
         # Assign test dataset for use in dataloader(s)
-        if stage == "test" or stage is None:
+        if stage == 'fit' or stage is None:
             mnist_test = MNIST(self.data_dir, train=False, transform=self.transform)
             self.mnist_test = self.remove_subset_complement(mnist_test)
             

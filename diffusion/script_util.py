@@ -107,7 +107,7 @@ def diffusion_simple() -> dict:
     )
     return dict(
         lr = 3e-4,
-        epochs = 40,
+        epochs = 100,
         lambda_vlb_weight = 0.001,
         unet_kwargs = unet_kwargs,
         diffusion_kwargs = diffusion_kwargs
