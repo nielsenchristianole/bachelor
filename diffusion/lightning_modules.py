@@ -10,7 +10,7 @@ from types import FunctionType
 
 from torchvision import transforms
 from torchvision.datasets import MNIST
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split, Subset
 
 from .diffusion import Diffusion
 from .unet import SimpleUNet
@@ -117,7 +117,8 @@ class MNISTDataModule(pl.LightningDataModule):
         num_workers=None,
         normalize=True,
         train_val_split=[55000, 5000],
-        data_split_seed=42
+        data_split_seed=42,
+        label_subset: list[int]|None=None,
     ):
         super().__init__()
         self.data_dir = data_dir
@@ -126,6 +127,7 @@ class MNISTDataModule(pl.LightningDataModule):
         self.normalize = normalize
         self.train_val_split = train_val_split
         self.data_split_seed = data_split_seed
+        self.label_subset = label_subset
         
         self.normelization = transforms.Normalize((0.,), (1.,)) if normalize else nn.Identity() # transforms.Normalize((0.1307,), (0.3081,)),
         
@@ -144,16 +146,37 @@ class MNISTDataModule(pl.LightningDataModule):
         MNIST(self.data_dir, train=True, download=True)
         MNIST(self.data_dir, train=False, download=True)
 
+    def remove_subset_complement(self, dataset: MNIST|Subset):
+        """
+        returns a subset of the dataset containing only labels in self.label_subset
+        """
+        if self.label_subset is not None:
+            if isinstance(dataset, Subset):
+                mask = torch.full((len(dataset.indices),), False, dtype=bool)
+                for label in self.label_subset:
+                    mask |= (dataset.dataset.targets[dataset.indices] == label)
+            elif isinstance(dataset, MNIST):
+                mask = torch.full_like(dataset.targets, False, dtype=bool)
+                for label in self.label_subset:
+                    mask |= (dataset.targets == label)
+            else:
+                raise NotImplementedError(f'{type(dataset)=} not supported')
+            indices = torch.arange(len(mask))[mask]
+            return Subset(dataset, indices)
+        return dataset
+
     def setup(self, stage=None):
         # Assign train/val datasets for use in dataloaders
         if stage == "fit" or stage is None:
             mnist_full = MNIST(self.data_dir, train=True, transform=self.transform)
-            self.mnist_train, self.mnist_val = random_split(mnist_full, self.train_val_split, generator=torch.Generator().manual_seed(self.data_split_seed))
-
+            mnist_train, mnist_val = random_split(mnist_full, self.train_val_split, generator=torch.Generator().manual_seed(self.data_split_seed))
+            self.mnist_train = self.remove_subset_complement(mnist_train)
+            self.mnist_val = self.remove_subset_complement(mnist_val)
         # Assign test dataset for use in dataloader(s)
         if stage == "test" or stage is None:
-            self.mnist_test = MNIST(self.data_dir, train=False, transform=self.transform)
-
+            mnist_test = MNIST(self.data_dir, train=False, transform=self.transform)
+            self.mnist_test = self.remove_subset_complement(mnist_test)
+            
     def train_dataloader(self):
         return DataLoader(
             self.mnist_train,
