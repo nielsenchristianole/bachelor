@@ -274,7 +274,7 @@ class Diffusion:
             model_out = model(x_t, t)
             
             if model.var_type in [VarType.zero, VarType.scheduled]:
-                mu = model_out
+                err = model_out
                 cov = self._get(self.beta, t, x_t.shape)
             
                 if model.var_type is VarType.zero:
@@ -282,10 +282,14 @@ class Diffusion:
                 else:
                     std = self._get(self.std, t, x_t.shape)
             elif model.var_type is VarType.learned:
-                mu, cov = self._split_model_out(model_out, x_t.shape)
-                std = torch.sqrt(cov)
+                err, v = self._split_model_out(model_out, x_t.shape)
+                v_out = self.model_v_pred_to_std(v, t)
+                std = v_out['std']
+                cov = torch.exp(v_out['log_var'])
             else:
                 raise NotImplementedError(f"{model.var_type=} not implemented")
+            
+            mu = self.model_err_pred_to_mean(err, x_t, t)
             
             c1 = self._get(self.recip_sqrt_alpha, t, x_t.shape)
             c2 = self._get(self.noise_coef, t, x_t.shape)

@@ -96,7 +96,6 @@ if __name__ == '__main__':
     parser.add_argument('--lambda_vlb_weight', type=float)
     args = parser.parse_args()
     
-    
     # set defaults
     hardware   = 'local' if args.hardware is None else args.hardware
     exp_name   = 'unnamed' if args.exp_name is None else args.exp_name
