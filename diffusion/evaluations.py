@@ -442,7 +442,6 @@ class CounterfactEvaluator():
                 zs = torch.cat(zs)
                 counterfact_mean = zs.mean(dim=0)
                 counterfact_cov = torch.cov(zs.T)
-                print(counterfact_mean, counterfact_cov, true_mean, true_cov, flush=True)
                 fvead = calculate_FVAED(counterfact_mean, counterfact_cov, true_mean, true_cov)
                 counterfact_FVAED[original_label, target_label] = fvead
                 
