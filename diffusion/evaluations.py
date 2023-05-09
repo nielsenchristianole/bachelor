@@ -277,7 +277,8 @@ class CounterfactEvaluator():
         show_progress: bool=True,
         batch_size: int=16,
         save_path: LambdaType=lambda: './',
-        save_results: bool=True
+        save_results: bool=True,
+        stage='fit'
     ):
         """
         This class generates counterfactual images for a dataloader taking in experiments.
@@ -285,6 +286,7 @@ class CounterfactEvaluator():
         1) transform 6 into 0 and 5
         2) transform 4 into 9
         set experiments={6: [0, 5], 4: [9]}
+        state: which dataset to use
         """
         self.data_module = data_module
         self.combined_model = combined_model
@@ -296,6 +298,7 @@ class CounterfactEvaluator():
         self.batch_size = batch_size
         self.save_path = save_path
         self.save_results = save_results
+        self.stage = stage
         
         self.unet: SimpleUNet
         self.diffusion: Diffusion
@@ -304,25 +307,39 @@ class CounterfactEvaluator():
         self.has_sampled = False
         self.sampled_counterfactuals = None
         self.acc = torchmetrics.Accuracy(task="multiclass", num_classes=n_classes).to(classifier.device)
+        self.calculated_FVAED_distributions = [None] * n_classes
         
-    def prepare_dataloader_FVAED(self, dataloader: DataLoader) -> tuple[torch.Tensor, torch.Tensor]:
+    def prepare_dataloader_FVAED(self, dataloader: DataLoader, label: int) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Calculates and store computations only needed once for multiple tests
         """
-        # iterate over validation set and encode images
-        zs, ys = list(), list()
-        if self.show_progress:
-            print('Encoding dataset', flush=True)
-        iterable = tqdm.tqdm(iter(dataloader), "Preparing FVAED calc") if self.show_progress else iter(dataloader)
-        for x, y in iterable:
-            zs.append(self.vae.get_latent(x.to(self.vae.device)))
-            ys.append(y)
-        zs, ys = torch.cat(zs), torch.cat(ys)
-        
-        # calculations used for FVAED score uncond
-        mean = zs.mean(dim=0)
-        cov = torch.cov(zs.T)
-        return mean, cov
+        if self.calculated_FVAED_distributions[label] is None:
+            # iterate over validation set and encode images
+            zs, ys = list(), list()
+            if self.show_progress:
+                print('Encoding dataset', flush=True)
+            iterable = tqdm.tqdm(iter(dataloader), "Preparing FVAED calc") if self.show_progress else iter(dataloader)
+            for x, y in iterable:
+                zs.append(self.vae.get_latent(x.to(self.vae.device)))
+                ys.append(y)
+            zs, ys = torch.cat(zs), torch.cat(ys)
+            
+            # calculations used for FVAED score uncond
+            mean = zs.mean(dim=0)
+            cov = torch.cov(zs.T)
+            self.calculated_FVAED_distributions[label] = (mean, cov)
+        return self.calculated_FVAED_distributions[label]
+    
+    def modify_dataloader(self, label: int) -> DataLoader:
+        self.data_module.label_subset = [label]
+        self.data_module.setup(self.stage)
+        if self.stage == 'fit':
+            dataloader = self.data_module.val_dataloader()
+        elif self.stage == 'test':
+            dataloader = self.data_module.test_dataloader()
+        else:
+            raise NotImplementedError(f'{self.stage=} not implemented')
+        return dataloader
     
     def sample_counterfacts(
         self,
@@ -362,7 +379,7 @@ class CounterfactEvaluator():
             self.has_sampled = True
         return self.sampled_counterfactuals
         
-    def calculate_pair_wise_FVAED(self, stage='fit'):
+    def calculate_pair_wise_FVAED(self):
         
         means = list()
         covs = list()
@@ -371,15 +388,8 @@ class CounterfactEvaluator():
         
         _range = tqdm.trange if self.show_progress else range
         for label in _range(self.n_classes):
-            self.data_module.label_subset = [label]
-            self.data_module.setup(stage)
-            if stage == 'fit':
-                dataloader = self.data_module.val_dataloader()
-            elif stage == 'test':
-                dataloader = self.data_module.test_dataloader()
-            else:
-                raise NotImplementedError(f'{stage=} not implemented')
-            mean, cov = self.prepare_dataloader_FVAED(dataloader)
+            dataloader = self.modify_dataloader(label)
+            mean, cov = self.prepare_dataloader_FVAED(dataloader, label)
             means.append(mean)
             covs.append(cov)
         
@@ -394,7 +404,6 @@ class CounterfactEvaluator():
 
     def do_all_tests(
         self,
-        stage='fit',
         *,
         tau: int,
         lambda_p: float,
@@ -410,19 +419,13 @@ class CounterfactEvaluator():
         
         self.data_module.prepare_data()
         
+        fact_FVAED = np.full((self.n_classes, self.n_classes), -1.)
         counterfact_FVAED = np.full((self.n_classes, self.n_classes), -1.)
         counterfact_acc = np.full((self.n_classes, self.n_classes), -1.)
         for original_label, target_labels in self.experiments.items():
-            self.data_module.label_subset = [original_label]
-            self.data_module.setup(stage)
-            if stage == 'fit':
-                dataloader = self.data_module.val_dataloader()
-            elif stage == 'test':
-                dataloader = self.data_module.test_dataloader()
-            else:
-                raise NotImplementedError(f'{stage=} not implemented')
+            dataloader = self.modify_dataloader(original_label)
         
-            true_mean, true_cov = self.prepare_dataloader_FVAED(dataloader)
+            original_true_mean, original_true_cov = self.prepare_dataloader_FVAED(dataloader, original_label)
         
             for target_label in target_labels:
                 self.has_sampled = False
@@ -442,8 +445,14 @@ class CounterfactEvaluator():
                 zs = torch.cat(zs)
                 counterfact_mean = zs.mean(dim=0)
                 counterfact_cov = torch.cov(zs.T)
-                fvead = calculate_FVAED(counterfact_mean, counterfact_cov, true_mean, true_cov)
-                counterfact_FVAED[original_label, target_label] = fvead
+                
+                original_fvead = calculate_FVAED(counterfact_mean, counterfact_cov, original_true_mean, original_true_cov)
+                fact_FVAED[original_label, target_label] = original_fvead
+                
+                dataloader = self.modify_dataloader(target_label)
+                target_true_mean, target_true_cov = self.prepare_dataloader_FVAED(dataloader, target_label)
+                target_fvead = calculate_FVAED(counterfact_mean, counterfact_cov, target_true_mean, target_true_cov)
+                counterfact_FVAED[original_label, target_label] = target_fvead
                 
                 # calculate prediction
                 self.acc.reset()
@@ -453,10 +462,12 @@ class CounterfactEvaluator():
                     self.acc(y_preds, y_target)
                 counterfact_acc[original_label, target_label] = float(self.acc.compute())
             
+            return_dict['fact_FVAED'] = fact_FVAED
             return_dict['counterfact_FVAED'] = counterfact_FVAED
             return_dict['counterfact_acc'] = counterfact_acc
             
             if self.save_results:
+                np.save(os.path.join(self.save_path(), 'fact_FVAED.npy'), fact_FVAED)
                 np.save(os.path.join(self.save_path(), 'counterfact_FVAED.npy'), counterfact_FVAED)
                 np.save(os.path.join(self.save_path(), 'counterfact_acc.npy'), counterfact_acc)
         
