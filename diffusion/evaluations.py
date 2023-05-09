@@ -20,6 +20,18 @@ from .unet import SimpleUNet
 from .script_util import ModelType, VarType
 
 
+class NoShowProgress():
+    def __init__(self, evaluator):
+        self.evaluator = evaluator
+        self.show_progress = evaluator.show_progress
+     
+    def __enter__(self):
+        self.evaluator.show_progress = False
+ 
+    def __exit__(self, *args):
+        self.evaluator.show_progress = self.show_progress
+
+
 def calculate_FVAED(sampled_mu, sampled_sigma, true_mu, true_sigma, *, eps=1e-6):
     """
     inputs - mu1: torch.Tensor, cov1: torch.Tensor, mu2: torch.Tensor, cov2: torch.Tensor
@@ -308,6 +320,7 @@ class CounterfactEvaluator():
         self.sampled_counterfactuals = None
         self.acc = torchmetrics.Accuracy(task="multiclass", num_classes=n_classes).to(classifier.device)
         self.calculated_FVAED_distributions = [None] * n_classes
+        self.no_show_progress = NoShowProgress(self)
         
     def prepare_dataloader_FVAED(self, dataloader: DataLoader, label: int) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -387,12 +400,12 @@ class CounterfactEvaluator():
         self.data_module.prepare_data()
         
         _range = tqdm.trange if self.show_progress else range
-        for label in _range(self.n_classes):
-            dataloader = self.modify_dataloader(label)
-            mean, cov = self.prepare_dataloader_FVAED(dataloader, label)
-            means.append(mean)
-            covs.append(cov)
-        
+        with self.no_show_progress:
+            for label in _range(self.n_classes):
+                dataloader = self.modify_dataloader(label)
+                mean, cov = self.prepare_dataloader_FVAED(dataloader, label)
+                means.append(mean)
+                covs.append(cov)
         return_matrix = np.full((self.n_classes, self.n_classes), 0.)
         for i in range(self.n_classes):
             for j in range(self.n_classes):
