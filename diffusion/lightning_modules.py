@@ -177,7 +177,7 @@ class MNISTDataModule(pl.LightningDataModule):
             mnist_test = MNIST(self.data_dir, train=False, transform=self.transform)
             self.mnist_test = self.remove_subset_complement(mnist_test)
             
-    def train_dataloader(self):
+    def train_dataloader(self) -> DataLoader:
         return DataLoader(
             self.mnist_train,
             batch_size=self.batch_size,
@@ -185,14 +185,14 @@ class MNISTDataModule(pl.LightningDataModule):
             num_workers=self.num_workers
         )
 
-    def val_dataloader(self):
+    def val_dataloader(self) -> DataLoader:
         return DataLoader(
             self.mnist_val,
             batch_size=self.batch_size,
             num_workers=self.num_workers
         )
 
-    def test_dataloader(self):
+    def test_dataloader(self) -> DataLoader:
         return DataLoader(
             self.mnist_test,
             batch_size=self.batch_size,

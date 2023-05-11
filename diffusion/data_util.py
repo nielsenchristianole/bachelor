@@ -72,7 +72,7 @@ get_ckpt_path = partial(get_ckpt_path_long, work_dir=work_dir)
 get_logger_path = partial(get_logger_path_long, work_dir=work_dir)
 
 
-def img_plot(img, title=None, ax: matplotlib.axes.Axes=None, **ax_kwargs):
+def img_plot(img, title=None, ax: matplotlib.axes.Axes=None, **ax_kwargs) -> matplotlib.axes.Axes:
     kwargs = dict(
         interpolation='nearest'
     ) | ax_kwargs
@@ -84,6 +84,7 @@ def img_plot(img, title=None, ax: matplotlib.axes.Axes=None, **ax_kwargs):
     ax.set_axis_off()
     if title is not None:
         ax.set_title(title)
+    return ax
     
 
 def show_out_images(x: torch.Tensor, y: torch.Tensor=None, fig=None, ax_kwargs={}, **fig_kwargs):

@@ -55,7 +55,17 @@ class Diffusion:
         self.posterior_log_variance = np.log(np.append(self.posterior_variance[1], self.posterior_variance[1:])) # first element not -inf
         self.posterior_mean_coef1 = self.beta * np.sqrt(self.alpha_bar_t_minus_one) / (1.0 - self.alpha_bar)
         self.posterior_mean_coef2 = (1.0 - self.alpha_bar_t_minus_one) * np.sqrt(self.alpha) / (1.0 - self.alpha_bar)
+        self.sqrt_one_minus_beta = np.sqrt(1 - self.beta)
         
+    def forward_step(self, x_t: torch.Tensor, t: torch.IntTensor, noise: torch.Tensor=None) -> torch.Tensor:
+        if noise is None:
+            noise = torch.randn_like(x_t, device=self.device)
+
+        std = self._get(self.std, t, x_t.shape)
+        sqrt_one_minus_beta = self._get(self.sqrt_one_minus_beta, t, x_t.shape)
+        
+        return sqrt_one_minus_beta * x_t + std * noise
+    
     def q_sample(self, x_0: torch.Tensor, t: torch.Tensor, noise: torch.Tensor=None):
         """
         Sample from q(x_t | x_0) using the diffusion process
@@ -148,6 +158,7 @@ class Diffusion:
         
         # generetes samples if none are passed
         if n_samples:
+            assert t_upper == self.num_diffusion_timesteps-1
             x = torch.randn((n_samples, self.color_channels, self.img_size, self.img_size), device=self.device)
         shape = x.shape
         
@@ -237,7 +248,8 @@ class Diffusion:
         vgg_block: int
     ):
         """
-        Algo 1 from _Diffusion Models Beat GANs on Image Synthesis_
+        Algo 1 from _Diffusion Models Beat GANs on Image Synthesis
+        Calculates the mean and std for a single reverse step guided with a classifier
         """
         assert not model.training, "UNet should not be in training when doing guided diffusion"
         assert not classifier.training, "Classifier should not be in training when doing guided diffusion"
@@ -289,11 +301,7 @@ class Diffusion:
             else:
                 raise NotImplementedError(f"{model.var_type=} not implemented")
             
-            mu = self.model_err_pred_to_mean(err, x_t, t)
-            
-            c1 = self._get(self.recip_sqrt_alpha, t, x_t.shape)
-            c2 = self._get(self.noise_coef, t, x_t.shape)
-            mean = c1 * (x_t - c2 * mu) - cov * gradient
+            mean = self.model_err_pred_to_mean(err, x_t, t) - cov * gradient
             
             return mean, std
     
@@ -329,6 +337,56 @@ class Diffusion:
         noise = torch.randn_like(x_t, device=self.device) * (t > 0)[:, None, None, None]
         return mean + std * noise
 
+    def guided_sample_iter(
+        self,
+        model: SimpleUNet,
+        classifier: VGG5,
+        x_t: torch.Tensor,
+        t: int,
+        y_target: torch.Tensor,
+        *,
+        x_0_original: torch.Tensor=None,
+        x_0_latent: torch.Tensor=None,
+        n_reconstruct_samples: int=1,
+        lambda_p: float,
+        lambda_c: float,
+        vgg_block: int,
+        return_reconstruct: bool=False
+    ) -> torch.Tensor|tuple[torch.Tensor, torch.Tensor|list[torch.Tensor]]:
+        """
+        From a noisy image x_t, sample uncon to get clean image, and do a reverse step
+        """
+        assert (x_0_original is not None) or (x_0_latent is not None)
+        
+        if x_0_latent is None:
+            with torch.no_grad():
+                x_0_latent = classifier.get_featuremap(x_0_original, vgg_block)
+        
+        x_0_reconstructed = self.p_sample_loop(model, t_lower=0, t_upper=t, x=x_t)
+        if n_reconstruct_samples > 1:
+            x_0_reconstructed = [x_0_reconstructed]
+            for _ in range(n_reconstruct_samples-1):
+                x_0_reconstructed.append(
+                    self.p_sample_loop(model, t_lower=0, t_upper=t, x=x_t)
+                )
+        t_tensor = torch.tensor([t] * x_t.shape[0], device=self.device)
+        x_t = self.p_guided_sample(
+            model,
+            classifier,
+            x_t,
+            x_0_reconstructed,
+            x_0_latent,
+            t_tensor,
+            y_target,
+            lambda_p=lambda_p,
+            lambda_c=lambda_c,
+            vgg_block=vgg_block
+        )
+        if return_reconstruct:
+            return x_t, x_0_reconstructed
+        return x_t
+
+
     def guided_counterfactual(
         self,
         model: SimpleUNet,
@@ -358,7 +416,7 @@ class Diffusion:
         y = torch.tensor((y,) * batch_size, device=self.device)
         t = torch.tensor((tau,) * batch_size, device=self.device)
         
-        x_t, noise = self.q_sample(x_0_original, t)
+        x_t, _ = self.q_sample(x_0_original, t)
         x_0_reconstructed = torch.clone(x_0_original)
         
         with torch.no_grad():
@@ -367,17 +425,31 @@ class Diffusion:
         iterator = list(reversed(range(0, tau)))
         iterator = tqdm.tqdm(iterator) if show_pbar else iterator
         
-        x_t = self.p_guided_sample(model, classifier, x_t, x_0_reconstructed, original_latent, t, y, lambda_p=lambda_p, lambda_c=lambda_c, vgg_block=vgg_block)
+        x_t = self.p_guided_sample(
+            model,
+            classifier,
+            x_t,
+            x_0_reconstructed,
+            original_latent,
+            t,
+            y,
+            lambda_p=lambda_p,
+            lambda_c=lambda_c,
+            vgg_block=vgg_block
+        )
         for i in iterator:
-            t = torch.tensor((i,), device=self.device)
-            x_0_reconstructed = self.p_sample_loop(model, t_lower=0, t_upper=i, x=x_t)
-            if n_reconstruct_samples > 1:
-                x_0_reconstructed = [x_0_reconstructed]
-                for _ in range(n_reconstruct_samples-1):
-                    x_0_reconstructed.append(
-                        self.p_sample_loop(model, t_lower=0, t_upper=i, x=x_t)
-                    )
-            x_t = self.p_guided_sample(model, classifier, x_t, x_0_reconstructed, original_latent, t, y, lambda_p=lambda_p, lambda_c=lambda_c, vgg_block=vgg_block)
+            x_t = self.guided_sample_iter(
+                model,
+                classifier,
+                x_t,
+                i,
+                y,
+                x_0_latent=original_latent,
+                n_reconstruct_samples=n_reconstruct_samples,
+                lambda_p=lambda_p,
+                lambda_c=lambda_c,
+                vgg_block=vgg_block
+            )
         classification_logits = classifier.forward(x_t)
         
         return x_t, classification_logits
