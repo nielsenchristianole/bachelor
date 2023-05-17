@@ -267,7 +267,7 @@ class Diffusion:
                         lambda_c=lambda_c,
                         lambda_p=lambda_p,
                         vgg_block=vgg_block
-                    )
+                    )[None, ...]
                 )
             gradient = torch.cat(gradients).mean(dim=0)
         else:
@@ -399,8 +399,11 @@ class Diffusion:
         lambda_p: float,
         lambda_c: float,
         vgg_block: int,
-        show_pbar: bool=True
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        show_pbar: bool=True,
+        return_classifier_logits: bool=False,
+        return_pred_class: bool=False,
+        return_intermediate: bool=False,
+    ) -> torch.Tensor|tuple[torch.Tensor, ...]:
         """
         Uses the algoritm proposed in _Diffusion Models for Counterfactual Explanations_ for generating
         a counterfactual explenaition.
@@ -425,6 +428,10 @@ class Diffusion:
         iterator = list(reversed(range(0, tau)))
         iterator = tqdm.tqdm(iterator) if show_pbar else iterator
         
+        if return_intermediate:            
+            assert (batch_size == 1) or (n_reconstruct_samples == 1), f'return_intermediate not defined when neither {batch_size=} nor {n_reconstruct_samples=} equals 1'
+            intermediate_reconstructed = [x_0_reconstructed.repeat((n_reconstruct_samples, 1, 1, 1))[None, ...]]
+
         x_t = self.p_guided_sample(
             model,
             classifier,
@@ -438,7 +445,7 @@ class Diffusion:
             vgg_block=vgg_block
         )
         for i in iterator:
-            x_t = self.guided_sample_iter(
+            x_t, x_0_reconstructed = self.guided_sample_iter(
                 model,
                 classifier,
                 x_t,
@@ -448,11 +455,30 @@ class Diffusion:
                 n_reconstruct_samples=n_reconstruct_samples,
                 lambda_p=lambda_p,
                 lambda_c=lambda_c,
-                vgg_block=vgg_block
+                vgg_block=vgg_block,
+                return_reconstruct=True
             )
-        classification_logits = classifier.forward(x_t)
+            if return_intermediate:
+                if isinstance(x_0_reconstructed, list):
+                    x_0_reconstructed = torch.cat(x_0_reconstructed)
+                intermediate_reconstructed.append(x_0_reconstructed[None, ...])
         
-        return x_t, classification_logits
+        outputs = (x_t,)
+        
+        classification_logits = None
+        if return_classifier_logits:
+            classification_logits = classifier.forward(x_t)
+            outputs += (classification_logits,)
+        if return_pred_class:
+            classification_logits = classification_logits or classifier.forward(x_t)
+            pred_class = torch.argmax(classification_logits, dim=1)
+            outputs += (pred_class,)
+        if return_intermediate:
+            outputs += (torch.cat(intermediate_reconstructed),)
+        
+        if len(outputs) == 1:
+            return outputs[0]
+        return tuple(outputs)
     
     def sample_timesteps(self, n_samples):
         """

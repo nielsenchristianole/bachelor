@@ -91,7 +91,7 @@ class VGG5(pl.LightningModule):
         
         self.loss_fn = nn.CrossEntropyLoss()
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.block_1(x)
         x = self.block_2(x)
         x = self.block_3(x)
@@ -108,7 +108,7 @@ class VGG5(pl.LightningModule):
         y_dist = F.softmax(x, dim=1)
         return y_dist
     
-    def predict(self, x):
+    def predict(self, x: torch.Tensor) -> torch.Tensor:
         """
         Apply argmax to out logits of the forward pass
         """
