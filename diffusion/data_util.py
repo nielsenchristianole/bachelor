@@ -87,8 +87,8 @@ def img_plot(img, title=None, ax: matplotlib.axes.Axes=None, **ax_kwargs) -> mat
     return ax
     
 
-def show_out_images(x: torch.Tensor, y: torch.Tensor=None, fig=None, ax_kwargs={}, **fig_kwargs):
-    x = x.detach().to('cpu').numpy()
+def show_out_images(x: torch.Tensor, y: torch.Tensor=None, fig=None, fig_shape=None, ax_kwargs={}, **fig_kwargs):
+    x = x.detach().to('cpu').numpy() if isinstance(x, torch.Tensor) else x
     n_batches, channels, width, height = x.shape
     
     y = y.detach().to('cpu').numpy() if isinstance(y, torch.Tensor) else y
@@ -102,12 +102,14 @@ def show_out_images(x: torch.Tensor, y: torch.Tensor=None, fig=None, ax_kwargs={
         raise NotImplementedError
     
     num_side_img = math.ceil(math.sqrt(n_batches))
-    if fig == None:
-        fig_kwargs['figsize'] = fig_kwargs.get('figsize', (2*num_side_img, 2*num_side_img))
+    fig_shape = (num_side_img, num_side_img) if fig_shape is None else fig_shape
+    if fig is None:
+        fig_kwargs['figsize'] = fig_kwargs.get('figsize', (2*fig_shape[0], 2*fig_shape[1]))
         fig = plt.figure(**fig_kwargs)
     for i, (img, label) in enumerate(zip(imgs, y), start=1):
-        ax = fig.add_subplot(num_side_img, num_side_img, i)
+        ax = fig.add_subplot(fig_shape[1], fig_shape[0], i)
         img_plot(img, label, ax, **ax_kwargs)
+    return fig
 
 
 def training_parrent_plot(

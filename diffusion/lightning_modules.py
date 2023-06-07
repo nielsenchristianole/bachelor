@@ -173,7 +173,7 @@ class MNISTDataModule(pl.LightningDataModule):
             self.mnist_train = self.remove_subset_complement(mnist_train)
             self.mnist_val = self.remove_subset_complement(mnist_val)
         # Assign test dataset for use in dataloader(s)
-        if stage == 'fit' or stage is None:
+        if stage == 'test' or stage is None:
             mnist_test = MNIST(self.data_dir, train=False, transform=self.transform)
             self.mnist_test = self.remove_subset_complement(mnist_test)
             

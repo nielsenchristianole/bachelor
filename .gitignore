@@ -1,6 +1,6 @@
 # Notebooks sucks with git #
 ############################
-*.ipynb
+# *.ipynb
 
 # Everything related to training on hcp #
 #########################################
@@ -18,4 +18,4 @@ eval_models/
 *.cpython-310.pyc
 *.cpython-39.pyc
 diffusion/__pycache__
-*.npy
+# *.npy
